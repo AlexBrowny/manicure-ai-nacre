@@ -1,0 +1,59 @@
+// Мастера и услуги в админке.
+import express from 'express';
+import {
+  createMaster, createService, deleteMaster, deleteService, getMaster, listMasters, listServices,
+  updateMaster, updateService,
+} from '../../domain/catalog.js';
+import { badRequest } from '../../errors.js';
+import { adminMasterDto, serviceDto } from '../dto.js';
+import { ok } from '../respond.js';
+import { idParam, masterBody, serviceBody } from '../schemas.js';
+
+function assertServicesExist(ctx, ids) {
+  const known = new Set(listServices(ctx).map((s) => s.id));
+  if (ids.some((id) => !known.has(id))) throw badRequest('Выбрана несуществующая услуга');
+}
+
+export function adminCatalogRoutes({ ctx }) {
+  const router = express.Router();
+  const idOf = (req) => idParam.parse(req.params).id;
+
+  router.get('/services', (req, res) => res.json(ok(listServices(ctx).map(serviceDto))));
+
+  router.post('/services', (req, res) => {
+    res.status(201).json(ok(serviceDto(createService(ctx, serviceBody.parse(req.body)))));
+  });
+
+  router.put('/services/:id', (req, res) => {
+    res.json(ok(serviceDto(updateService(ctx, idOf(req), serviceBody.parse(req.body)))));
+  });
+
+  router.delete('/services/:id', (req, res) => {
+    deleteService(ctx, idOf(req));
+    res.json(ok());
+  });
+
+  router.get('/masters', (req, res) => res.json(ok(listMasters(ctx).map(adminMasterDto))));
+
+  router.get('/masters/:id', (req, res) => res.json(ok(adminMasterDto(getMaster(ctx, idOf(req))))));
+
+  router.post('/masters', (req, res) => {
+    const data = masterBody.parse(req.body);
+    assertServicesExist(ctx, data.serviceIds);
+    res.status(201).json(ok(adminMasterDto(createMaster(ctx, data))));
+  });
+
+  router.put('/masters/:id', (req, res) => {
+    const id = idOf(req);
+    const data = masterBody.parse(req.body);
+    assertServicesExist(ctx, data.serviceIds);
+    res.json(ok(adminMasterDto(updateMaster(ctx, id, data))));
+  });
+
+  router.delete('/masters/:id', (req, res) => {
+    deleteMaster(ctx, idOf(req));
+    res.json(ok());
+  });
+
+  return router;
+}

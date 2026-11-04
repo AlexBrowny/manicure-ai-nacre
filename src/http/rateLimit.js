@@ -1,3 +1,5 @@
+import { fail } from './respond.js';
+
 // Простой ограничитель частоты в памяти: не более `max` запросов за `windowMs` с одного IP.
 export function rateLimit({ windowMs, max, message = 'Слишком много запросов. Попробуйте позже.' }) {
   const hits = new Map(); // ip → { count, resetAt }
@@ -21,7 +23,7 @@ export function rateLimit({ windowMs, max, message = 'Слишком много 
     req.refundRateLimit = () => { entry.count = Math.max(0, entry.count - 1); };
     if (entry.count > max) {
       res.set('Retry-After', String(Math.ceil((entry.resetAt - now) / 1000)));
-      return res.status(429).json({ success: false, error: message, code: 'rate_limited' });
+      return res.status(429).json(fail(message, 'rate_limited'));
     }
     return next();
   };

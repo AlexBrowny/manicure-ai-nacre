@@ -5,6 +5,7 @@ import { ZodError } from 'zod';
 import { AppError } from '../errors.js';
 import { logger as defaultLogger } from '../logger.js';
 import { sameOriginGuard } from './auth.js';
+import { fail } from './respond.js';
 import { adminRoutes } from './adminRoutes.js';
 import { publicRoutes } from './publicRoutes.js';
 
@@ -45,23 +46,20 @@ function errorHandler(logger) {
     if (err instanceof ZodError) {
       const issue = err.issues[0];
       const field = issue.path.join('.');
-      return res.status(400).json({
-        success: false,
-        error: field ? `Проверьте поле «${field}»: ${issue.message}` : issue.message,
-        code: 'validation_error',
-      });
+      const message = field ? `Проверьте поле «${field}»: ${issue.message}` : issue.message;
+      return res.status(400).json(fail(message, 'validation_error'));
     }
     if (err instanceof AppError) {
-      return res.status(err.status).json({ success: false, error: err.message, code: err.code });
+      return res.status(err.status).json(fail(err.message, err.code));
     }
     if (err.type === 'entity.parse.failed') {
-      return res.status(400).json({ success: false, error: 'Некорректный JSON', code: 'bad_json' });
+      return res.status(400).json(fail('Некорректный JSON', 'bad_json'));
     }
     if (err.type === 'entity.too.large') {
-      return res.status(413).json({ success: false, error: 'Слишком большой запрос', code: 'too_large' });
+      return res.status(413).json(fail('Слишком большой запрос', 'too_large'));
     }
     logger.error(`${req.method} ${req.path}:`, err);
-    return res.status(500).json({ success: false, error: 'Внутренняя ошибка сервера', code: 'internal' });
+    return res.status(500).json(fail('Внутренняя ошибка сервера', 'internal'));
   };
 }
 
@@ -79,7 +77,7 @@ export function createApp({ ctx, events = new EventEmitter(), runtime = {}, logg
   app.use('/api', noStore);
   app.use('/api/public', publicRoutes({ ctx, events, runtime }));
   app.use('/api/admin', sameOriginGuard, adminRoutes({ ctx, events }));
-  app.use('/api', (req, res) => res.status(404).json({ success: false, error: 'Не найдено', code: 'not_found' }));
+  app.use('/api', (req, res) => res.status(404).json(fail('Не найдено', 'not_found')));
 
   app.use(express.static(PUBLIC_DIR, { extensions: ['html'] }));
   app.use(errorHandler(logger));

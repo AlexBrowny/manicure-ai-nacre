@@ -1,5 +1,6 @@
 // Админ-сессия: подписанная HMAC cookie без хранения на сервере.
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
+import { fail } from './respond.js';
 
 export const COOKIE_NAME = 'nacre_admin';
 
@@ -45,7 +46,7 @@ export function sessionCookie(token, { maxAgeSec, secure }) {
 export function requireAdmin(cfg) {
   return (req, res, next) => {
     if (verifySessionToken(cfg.admin.sessionSecret, readCookie(req, COOKIE_NAME))) return next();
-    return res.status(401).json({ success: false, error: 'Требуется вход', code: 'unauthorized' });
+    return res.status(401).json(fail('Требуется вход', 'unauthorized'));
   };
 }
 
@@ -54,7 +55,7 @@ export function sameOriginGuard(req, res, next) {
   if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') return next();
   const origin = req.get('origin');
   if (origin && hostOf(origin) !== req.get('host')) {
-    return res.status(403).json({ success: false, error: 'Запрещено', code: 'bad_origin' });
+    return res.status(403).json(fail('Запрещено', 'bad_origin'));
   }
   return next();
 }

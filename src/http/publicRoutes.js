@@ -6,9 +6,8 @@ import { listMasters, listServices } from '../domain/catalog.js';
 import { minToHHMM, nowInTz } from '../time.js';
 import { publicMasterDto, serviceDto, slotDto } from './dto.js';
 import { rateLimit } from './rateLimit.js';
+import { ok } from './respond.js';
 import { bookingBody, mastersQuery, monthQuery, slotsQuery } from './schemas.js';
-
-const ok = (data) => ({ success: true, data });
 
 export function publicRoutes({ ctx, events, runtime }) {
   const router = express.Router();
