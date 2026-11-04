@@ -15,6 +15,14 @@ const COMMANDS = [
   { command: 'contacts', description: 'Контакты студии' },
 ];
 
+/** Кнопка «Записаться» слева от поля ввода открывает мини-приложение (или обычное меню команд). */
+async function setupMenuButton(api, webAppUrl, logger) {
+  const menuButton = webAppUrl
+    ? { type: 'web_app', text: 'Записаться', web_app: { url: webAppUrl } }
+    : { type: 'commands' };
+  await api.setChatMenuButton({ menu_button: menuButton }).catch((err) => logger.error('Кнопка меню не настроена:', err.message));
+}
+
 /** Middleware и маршруты: команды, кнопки (callback_data) и текстовые сообщения. */
 function registerHandlers(bot, flow, { dctx, logger }) {
   // Любая ошибка сценария превращается в понятное сообщение, а не в «молчание» бота.
@@ -99,6 +107,7 @@ export function createBot({ ctx: dctx, events, token, botInfo, logger = defaultL
       const me = await bot.api.getMe();
       runtime.botUsername = me.username;
       await bot.api.setMyCommands(COMMANDS);
+      await setupMenuButton(bot.api, dctx.cfg.telegram.webAppUrl, logger);
       bot.start({ drop_pending_updates: false }).catch((err) => logger.error('Бот остановлен:', err.message));
       reminders.start();
       return me;

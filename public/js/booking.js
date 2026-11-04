@@ -8,7 +8,7 @@ import { doneView } from './booking/done.js';
 import { renderChips, renderMasters, renderServices } from './booking/pickers.js';
 import { markSelectedTime, renderSlots } from './booking/slots.js';
 import { createState, emptyMonth, nextSlotFor } from './booking/state.js';
-import { buildSummary, readContacts, renderSummary, setSubmitting } from './booking/summary.js';
+import { buildSummary, fillContacts, readContacts, renderSummary, setSubmitting } from './booking/summary.js';
 
 const MOBILE = window.matchMedia('(max-width: 760px)');
 const reveal = (el) => { if (MOBILE.matches) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); };
@@ -18,10 +18,16 @@ const step = (number, title, ...content) =>
     h('div', { class: 'step-head' }, h('span', { class: 'step-num' }, String(number)), h('span', {}, title)),
     ...content);
 
+const postPublicBooking = (payload) => api.post('/api/public/bookings', payload);
+
 /**
- * @param {{ root: HTMLElement, config: object, services: object[] }} deps
+ * @param {{ root: HTMLElement, config: object, services: object[],
+ *           submitBooking?: (payload: object) => Promise<object>,
+ *           prefill?: { name?: string, phone?: string } | null,
+ *           renderDone?: (result: object, actions: { again: () => void }) => void }} deps
+ *   submitBooking/prefill/renderDone переопределяет мини-приложение Telegram.
  */
-export function initBooking({ root, config, services }) {
+export function initBooking({ root, config, services, submitBooking = postPublicBooking, prefill = null, renderDone = null }) {
   const { currency, today } = config;
   const minMonth = today.slice(0, 7);
   const maxMonth = toISO(new Date(new Date(`${today}T00:00:00`).getTime() + config.horizonDays * 86400000)).slice(0, 7);
@@ -53,6 +59,7 @@ export function initBooking({ root, config, services }) {
     paintCatalog();
     paintChoice();
     calendar.show(minMonth, emptyMonth(minMonth));
+    if (prefill) fillContacts(ui.summary.form, prefill);
   }
 
   // ---------- отрисовка ----------
@@ -168,7 +175,7 @@ export function initBooking({ root, config, services }) {
     setSubmitting(ui.summary, true);
     renderSummary(ui.summary, state, currency);
     try {
-      const result = await api.post('/api/public/bookings', {
+      const result = await submitBooking({
         serviceId: state.service.id, masterId: state.masterId, date: state.date, time: state.time, ...contacts,
       });
       showDone(result);
@@ -185,8 +192,10 @@ export function initBooking({ root, config, services }) {
     }
   }
 
-  function showDone({ booking, telegramLink }) {
+  function showDone(result) {
+    const { booking, telegramLink } = result;
     if (!booking) { build(); return; } // ловушка для ботов вернула пустой ответ
+    if (renderDone) { renderDone(result, { again: build }); return; }
     root.replaceChildren(doneView({ booking, telegramLink, config, onAgain: () => { build(); reveal(root); } }));
     root.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }

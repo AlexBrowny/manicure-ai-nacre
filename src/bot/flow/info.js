@@ -14,7 +14,7 @@ export function createInfoFlow({ dctx }) {
 
   async function menu(ctx) {
     clearDraft(db, ctx.chat.id);
-    await show(ctx, `Здравствуйте! Это <b>${esc(cfg.studio.name)}</b> — ${esc(cfg.studio.tagline)}.\nЧем могу помочь?`, mainMenu());
+    await show(ctx, `Здравствуйте! Это <b>${esc(cfg.studio.name)}</b> — ${esc(cfg.studio.tagline)}.\nЧем могу помочь?`, mainMenu(cfg.telegram.webAppUrl));
   }
 
   async function start(ctx) {
@@ -24,7 +24,7 @@ export function createInfoFlow({ dctx }) {
       if (booking) {
         return ctx.reply(
           `✅ Запись привязана к Telegram. Напомним о визите ${describeOffsets(reminderOffsets(cfg))}.\n\n${bookingCard(booking, currency)}`,
-          { ...HTML, reply_markup: mainMenu() },
+          { ...HTML, reply_markup: mainMenu(cfg.telegram.webAppUrl) },
         );
       }
     }

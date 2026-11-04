@@ -58,6 +58,12 @@ function fieldError(form, id, message) {
   return !message;
 }
 
+/** Подставляет известные имя и телефон (например, из профиля Telegram). */
+export function fillContacts(form, { name = '', phone = '' }) {
+  if (name) form.querySelector('#f-name').value = name;
+  if (phone) form.querySelector('#f-phone').value = formatPhoneInput(phone);
+}
+
 /** Проверяет форму и показывает ошибки у полей. null — есть ошибки. */
 export function readContacts(form) {
   const data = new FormData(form);

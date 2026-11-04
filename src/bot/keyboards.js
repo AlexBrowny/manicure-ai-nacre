@@ -11,11 +11,15 @@ export function shiftMonth(month, delta) {
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
 }
 
-export const mainMenu = () =>
-  new InlineKeyboard()
-    .text('💅 Записаться', 'book').row()
+/** webAppUrl — адрес мини-приложения: если задан, первой идёт кнопка календаря записи. */
+export function mainMenu(webAppUrl = '') {
+  const kb = new InlineKeyboard();
+  if (webAppUrl) kb.webApp('📅 Календарь записи', webAppUrl).row();
+  return kb
+    .text(webAppUrl ? '💬 Записаться в чате' : '💅 Записаться', 'book').row()
     .text('📋 Мои записи', 'my').text('💰 Услуги и цены', 'prices').row()
     .text('📍 Контакты', 'info');
+}
 
 export function servicesKeyboard(services, currency) {
   const kb = new InlineKeyboard();

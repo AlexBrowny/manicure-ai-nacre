@@ -4,8 +4,8 @@ import { daySlots, monthAvailability, nextFreeSlots } from '../domain/availabili
 import { createBooking } from '../domain/bookings.js';
 import { listMasters, listServices } from '../domain/catalog.js';
 import { describeOffsets, reminderOffsets } from '../domain/reminderRules.js';
-import { minToHHMM, nowInTz } from '../time.js';
-import { publicMasterDto, serviceDto, slotDto } from './dto.js';
+import { nowInTz } from '../time.js';
+import { publicBookingDto, publicMasterDto, serviceDto, slotDto } from './dto.js';
 import { rateLimit } from './rateLimit.js';
 import { ok } from './respond.js';
 import { bookingBody, mastersQuery, monthQuery, slotsQuery } from './schemas.js';
@@ -70,16 +70,7 @@ export function publicRoutes({ ctx, events, runtime }) {
 
     const username = botUsername();
     return res.status(201).json(ok({
-      booking: {
-        id: booking.id,
-        serviceName: booking.serviceName,
-        masterName: booking.masterName,
-        date: booking.date,
-        start: minToHHMM(booking.startMin),
-        end: minToHHMM(booking.endMin),
-        price: booking.price,
-        clientName: booking.clientName,
-      },
+      booking: publicBookingDto(booking),
       telegramLink: username ? `https://t.me/${username}?start=b_${booking.linkToken}` : null,
     }));
   });

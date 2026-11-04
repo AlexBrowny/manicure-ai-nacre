@@ -42,4 +42,12 @@ export function bookingDto(b) {
   };
 }
 
+/** Запись для клиента (сайт, мини-приложение): без телефона и служебных полей. */
+export function publicBookingDto(b) {
+  return {
+    id: b.id, serviceName: b.serviceName, masterName: b.masterName, date: b.date,
+    start: hhmm(b.startMin), end: hhmm(b.endMin), price: b.price, clientName: b.clientName,
+  };
+}
+
 export const slotDto = (s) => ({ start: s.start, time: hhmm(s.start) });

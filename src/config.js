@@ -25,6 +25,14 @@ function reminderList(env) {
   return [...new Set(minutes)];
 }
 
+/** WEBAPP_URL — публичный https-адрес мини-приложения (например https://studio.uz/app/). Пусто — кнопки нет. */
+function webAppUrl(env) {
+  const url = (env.WEBAPP_URL ?? '').trim();
+  if (!url) return '';
+  if (!/^https:\/\/\S+$/.test(url)) throw new Error(`WEBAPP_URL должен начинаться с https:// (Telegram открывает мини-приложения только по https), получено "${url}"`);
+  return url;
+}
+
 export function loadConfig(env = process.env) {
   const warnings = [];
 
@@ -76,6 +84,7 @@ export function loadConfig(env = process.env) {
       token: env.TELEGRAM_BOT_TOKEN || '',
       botUsername: (env.TELEGRAM_BOT_USERNAME || '').replace(/^@/, ''),
       adminChatIds,
+      webAppUrl: webAppUrl(env),
     },
     trustProxy: env.TRUST_PROXY === '1',
     warnings,

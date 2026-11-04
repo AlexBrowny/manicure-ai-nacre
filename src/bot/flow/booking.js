@@ -181,7 +181,7 @@ export function createBookingFlow({ dctx, events }) {
       }
       return confirmScreen(ctx);
     }
-    return ctx.reply('Выберите действие в меню 👇', { reply_markup: mainMenu() });
+    return ctx.reply('Выберите действие в меню 👇', { reply_markup: mainMenu(cfg.telegram.webAppUrl) });
   }
 
   return {

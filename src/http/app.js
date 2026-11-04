@@ -7,6 +7,7 @@ import { logger as defaultLogger } from '../logger.js';
 import { sameOriginGuard } from './auth.js';
 import { fail } from './respond.js';
 import { adminRoutes } from './adminRoutes.js';
+import { miniappRoutes } from './miniappRoutes.js';
 import { publicRoutes } from './publicRoutes.js';
 
 const PUBLIC_DIR = fileURLToPath(new URL('../../public', import.meta.url));
@@ -25,9 +26,14 @@ const CSP = [
   "form-action 'self'",
 ].join('; ');
 
+// Мини-приложение грузит SDK Telegram и открывается во фрейме Telegram Web — ему нужна своя политика.
+const MINIAPP_CSP = CSP
+  .replace("script-src 'self' https://www.youtube.com", "script-src 'self' https://telegram.org")
+  .replace("frame-ancestors 'none'", 'frame-ancestors https://web.telegram.org https://*.telegram.org');
+
 function securityHeaders(req, res, next) {
   res.set({
-    'Content-Security-Policy': CSP,
+    'Content-Security-Policy': req.path.startsWith('/app') ? MINIAPP_CSP : CSP,
     'X-Content-Type-Options': 'nosniff',
     'Referrer-Policy': 'strict-origin-when-cross-origin',
     'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
@@ -77,6 +83,7 @@ export function createApp({ ctx, events = new EventEmitter(), runtime = {}, logg
   app.use('/api', noStore);
   app.use('/api/public', publicRoutes({ ctx, events, runtime }));
   app.use('/api/admin', sameOriginGuard, adminRoutes({ ctx, events, runtime }));
+  app.use('/api/miniapp', miniappRoutes({ ctx, events }));
   app.use('/api', (req, res) => res.status(404).json(fail('Не найдено', 'not_found')));
 
   app.use(express.static(PUBLIC_DIR, { extensions: ['html'] }));
