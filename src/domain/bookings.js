@@ -6,6 +6,9 @@ import { localAbsMinutes, nowInTz } from '../time.js';
 import { daySlots, loadBusy } from './availability.js';
 import { getService } from './catalog.js';
 import { cleanName, normalizePhone } from './contact.js';
+import {
+  alreadyPassed, dueOffset, markSent, parseSent, reminderOffsets, serializeSent,
+} from './reminderRules.js';
 
 export const STATUSES = ['confirmed', 'completed', 'cancelled', 'no_show'];
 const MAX_ACTIVE_PER_PHONE = 5;
@@ -32,6 +35,8 @@ function toBooking(r) {
     status: r.status,
     tgChatId: r.tg_chat_id,
     notes: r.notes,
+    remindersSent: [...parseSent(r.reminders_sent)],
+    lastRemindedAt: r.last_reminded_at ?? null,
     createdAt: r.created_at,
   };
 }
@@ -48,10 +53,9 @@ export function minutesUntil(ctx, date, startMin) {
   return localAbsMinutes(date, startMin) - localAbsMinutes(now.date, now.minutes);
 }
 
-/** Напоминания, которые уже не нужны: до визита меньше 24 ч / 2 ч. */
-function reminderFlags(ctx, date, startMin) {
-  const left = minutesUntil(ctx, date, startMin);
-  return { r24: left <= 24 * 60 ? 1 : 0, r2: left <= 2 * 60 ? 1 : 0 };
+/** Напоминания, время которых уже прошло к моменту записи/привязки, — их не отправляем. */
+function skippedReminders(ctx, date, startMin) {
+  return serializeSent(alreadyPassed(reminderOffsets(ctx.cfg), minutesUntil(ctx, date, startMin)));
 }
 
 /** Мастер с наименьшей загрузкой в этот день среди свободных. */
@@ -93,19 +97,19 @@ export function createBooking(ctx, input) {
 
     const masterId = pickMaster(ctx, slot.masterIds, input.date);
     const tgChatId = input.tgChatId ?? null;
-    const flags = tgChatId == null ? { r24: 0, r2: 0 } : reminderFlags(ctx, input.date, input.startMin);
+    const sent = tgChatId == null ? '' : skippedReminders(ctx, input.date, input.startMin);
     const linkToken = randomBytes(12).toString('hex');
     const { lastInsertRowid } = ctx.db
       .prepare(
         `INSERT INTO bookings (master_id, service_id, service_name, price, date, start_min, end_min,
                                client_name, client_phone, source, tg_chat_id, link_token, notes,
-                               reminded_24h, reminded_2h)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                               reminders_sent)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         masterId, service.id, service.name, service.price, input.date, input.startMin,
         input.startMin + service.durationMin, name, phone, source, tgChatId, linkToken,
-        String(input.notes ?? '').slice(0, 500), flags.r24, flags.r2,
+        String(input.notes ?? '').slice(0, 500), sent,
       );
     return { ...getBooking(ctx, Number(lastInsertRowid)), linkToken };
   });
@@ -157,10 +161,9 @@ export function linkBookingToChat(ctx, token, chatId) {
     .prepare("SELECT id, date, start_min FROM bookings WHERE link_token = ? AND tg_chat_id IS NULL AND status = 'confirmed'")
     .get(token);
   if (!row) return null;
-  const flags = reminderFlags(ctx, row.date, row.start_min);
   ctx.db
-    .prepare('UPDATE bookings SET tg_chat_id = ?, reminded_24h = ?, reminded_2h = ? WHERE id = ?')
-    .run(chatId, flags.r24, flags.r2, row.id);
+    .prepare('UPDATE bookings SET tg_chat_id = ?, reminders_sent = ? WHERE id = ?')
+    .run(chatId, skippedReminders(ctx, row.date, row.start_min), row.id);
   return getBooking(ctx, row.id);
 }
 
@@ -200,27 +203,44 @@ export function listBookings({ db }, { from, to, masterId, status, q, limit = 10
   return rows;
 }
 
-/** Напоминания, которые пора отправить: [{ booking, kind: '24h' | '2h' }]. */
+/** Автоматические напоминания, которые пора отправить: [{ booking, offset }] (offset — минуты до визита). */
 export function dueReminders(ctx) {
+  const offsets = reminderOffsets(ctx.cfg);
   const rows = ctx.db
-    .prepare(
-      `${SELECT_BOOKING}
-       WHERE b.status = 'confirmed' AND b.tg_chat_id IS NOT NULL AND (b.reminded_24h = 0 OR b.reminded_2h = 0)`,
-    )
-    .all();
+    .prepare(`${SELECT_BOOKING} WHERE b.status = 'confirmed' AND b.tg_chat_id IS NOT NULL AND b.date >= ?`)
+    .all(nowInTz(ctx.cfg.timeZone, ctx.now()).date);
   const due = [];
   for (const row of rows) {
-    const left = minutesUntil(ctx, row.date, row.start_min);
-    if (left <= 0) continue;
-    if (left <= 2 * 60 && !row.reminded_2h) due.push({ booking: toBooking(row), kind: '2h' });
-    else if (left <= 24 * 60 && left > 2 * 60 && !row.reminded_24h) due.push({ booking: toBooking(row), kind: '24h' });
+    const offset = dueOffset(offsets, parseSent(row.reminders_sent), minutesUntil(ctx, row.date, row.start_min));
+    if (offset !== null) due.push({ booking: toBooking(row), offset });
   }
   return due;
 }
 
-export function markReminded({ db }, id, kind) {
-  const sql = kind === '2h'
-    ? 'UPDATE bookings SET reminded_24h = 1, reminded_2h = 1 WHERE id = ?'
-    : 'UPDATE bookings SET reminded_24h = 1 WHERE id = ?';
-  db.prepare(sql).run(id);
+/** Отмечает напоминание отправленным (и все более ранние — ненужными). */
+export function markReminded(ctx, id, offset) {
+  const row = ctx.db.prepare('SELECT reminders_sent FROM bookings WHERE id = ?').get(id);
+  if (!row) throw notFound('Запись');
+  const sent = markSent(reminderOffsets(ctx.cfg), parseSent(row.reminders_sent), offset);
+  ctx.db.prepare('UPDATE bookings SET reminders_sent = ? WHERE id = ?').run(serializeSent(sent), id);
+}
+
+const MANUAL_REMINDER_COOLDOWN_SEC = 60;
+
+/** Можно ли сейчас вручную напомнить клиенту из админки. Бросает понятную ошибку, если нельзя. */
+export function assertCanRemind(ctx, booking) {
+  if (booking.status !== 'confirmed') throw conflict('Напомнить можно только о подтверждённой записи.', 'not_remindable');
+  if (booking.tgChatId == null) {
+    throw conflict('Клиент не подключил Telegram — напоминание отправить некуда. Позвоните ему.', 'no_telegram');
+  }
+  if (minutesUntil(ctx, booking.date, booking.startMin) <= 0) throw conflict('Визит уже начался.', 'not_remindable');
+  if (booking.lastRemindedAt) {
+    const sentAgoSec = (ctx.now().getTime() - Date.parse(`${booking.lastRemindedAt.replace(' ', 'T')}Z`)) / 1000;
+    if (sentAgoSec < MANUAL_REMINDER_COOLDOWN_SEC) throw conflict('Напоминание только что отправлено. Подождите минуту.', 'too_soon');
+  }
+}
+
+export function markManualReminder(ctx, id) {
+  ctx.db.prepare('UPDATE bookings SET last_reminded_at = ? WHERE id = ?')
+    .run(ctx.now().toISOString().slice(0, 19).replace('T', ' '), id);
 }

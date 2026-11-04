@@ -83,7 +83,7 @@ export async function render({ root, session, setActions }) {
     const axis = h('div', { class: 'tl__axis' }, Array.from({ length: hours + 1 }, (_, i) =>
       h('span', { style: { top: `${i * HOUR_PX}px` } }, hhmm(range[0] + i * 60))));
     const nowLine = date === session.today ? nowMinutes(session.timeZone) : null;
-    const open = (booking) => openBookingModal(booking, { currency: session.currency, onChanged: load });
+    const open = (booking) => openBookingModal(booking, { currency: session.currency, timeZone: session.timeZone, onChanged: load });
     board.replaceChildren(h('div', { class: 'tl', style: { '--n': list.length, '--h': `${hours * HOUR_PX}px`, '--hour': `${HOUR_PX}px` } },
       axis, ...list.map((m) => column(m, range, { onOpen: open, nowLine }))));
   }

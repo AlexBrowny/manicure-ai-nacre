@@ -21,6 +21,6 @@ export function doneView({ booking, telegramLink, config, onAgain }) {
       line('Стоимость', money(booking.price, config.currency)), line('Адрес', config.studio.address)),
     h('div', { class: 'done__actions' }, actions),
     h('p', { class: 'done__note' }, telegramLink
-      ? 'Нажмите «Напоминания в Telegram» — бот напомнит о визите за сутки и за 2 часа и позволит отменить запись.'
+      ? `Нажмите «Напоминания в Telegram» — бот напомнит о визите ${config.reminders || 'заранее'} и позволит отменить запись.`
       : `Если планы изменятся, позвоните нам: ${config.studio.phone}`));
 }

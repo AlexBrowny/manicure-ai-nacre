@@ -87,11 +87,13 @@ export function createBot({ ctx: dctx, events, token, botInfo, logger = defaultL
 
   const { notifyAdmins } = setupNotifications({ api: bot.api, events, cfg, logger });
   const reminders = createReminders({ api: bot.api, dctx, logger });
+  runtime.sendReminder = reminders.sendManualReminder; // кнопка «Напомнить» в админке
 
   return {
     bot,
     notifyAdmins,
     sendReminders: reminders.sendReminders,
+    sendManualReminder: reminders.sendManualReminder,
     /** Запускает long polling и цикл напоминаний. Не блокирует. */
     async start() {
       const me = await bot.api.getMe();

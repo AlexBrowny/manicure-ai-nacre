@@ -76,7 +76,7 @@ export function createApp({ ctx, events = new EventEmitter(), runtime = {}, logg
 
   app.use('/api', noStore);
   app.use('/api/public', publicRoutes({ ctx, events, runtime }));
-  app.use('/api/admin', sameOriginGuard, adminRoutes({ ctx, events }));
+  app.use('/api/admin', sameOriginGuard, adminRoutes({ ctx, events, runtime }));
   app.use('/api', (req, res) => res.status(404).json(fail('Не найдено', 'not_found')));
 
   app.use(express.static(PUBLIC_DIR, { extensions: ['html'] }));

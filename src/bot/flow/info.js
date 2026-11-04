@@ -4,6 +4,7 @@ import { linkBookingToChat } from '../../domain/bookings.js';
 import { listServices } from '../../domain/catalog.js';
 import { backToMenu, mainMenu } from '../keyboards.js';
 import { clearDraft } from '../store.js';
+import { describeOffsets, reminderOffsets } from '../../domain/reminderRules.js';
 import { bookingCard, durationText, esc, money } from '../texts.js';
 import { HTML, show } from './common.js';
 
@@ -22,7 +23,7 @@ export function createInfoFlow({ dctx }) {
       const booking = linkBookingToChat(dctx, payload.slice(2), ctx.chat.id);
       if (booking) {
         return ctx.reply(
-          `✅ Запись привязана к Telegram. Напомним о визите за сутки и за 2 часа.\n\n${bookingCard(booking, currency)}`,
+          `✅ Запись привязана к Telegram. Напомним о визите ${describeOffsets(reminderOffsets(cfg))}.\n\n${bookingCard(booking, currency)}`,
           { ...HTML, reply_markup: mainMenu() },
         );
       }

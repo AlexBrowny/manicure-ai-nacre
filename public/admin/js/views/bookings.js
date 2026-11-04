@@ -27,7 +27,7 @@ export async function render({ root, session, setActions }) {
       field('Поиск', search, { class: 'field-label grow' })),
     summary, table));
 
-  const open = (booking) => openBookingModal(booking, { currency: session.currency, onChanged: load });
+  const open = (booking) => openBookingModal(booking, { currency: session.currency, timeZone: session.timeZone, onChanged: load });
 
   function paint(list) {
     const live = list.filter((b) => b.status !== 'cancelled');

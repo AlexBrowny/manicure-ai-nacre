@@ -1,5 +1,6 @@
 // Форматирование сообщений бота (parse_mode: HTML — пользовательский текст всегда экранируем).
 import { formatPhone } from '../domain/contact.js';
+import { durationPhrase } from '../domain/reminderRules.js';
 import { minToHHMM } from '../time.js';
 
 export const esc = (value) => String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -46,8 +47,9 @@ export function adminCancelText(b, currency, by) {
   return [`❌ <b>Запись отменена</b> (${who})`, bookingCard(b, currency), `👤 ${esc(b.clientName)}, ${esc(formatPhone(b.clientPhone))}`].join('\n');
 }
 
-export function reminderText(b, currency, kind) {
-  const lead = kind === '2h' ? '⏰ Ждём вас уже совсем скоро!' : '⏰ Напоминаем о записи на завтра.';
+/** offset — за сколько минут до визита (автонапоминание); null — ручное из админки. */
+export function reminderText(b, currency, offset = null) {
+  const lead = offset === null ? '⏰ Напоминаем о вашей записи.' : `⏰ Ждём вас через ${durationPhrase(offset)}!`;
   return `${lead}\n\n${bookingCard(b, currency)}`;
 }
 

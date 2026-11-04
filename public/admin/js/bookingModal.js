@@ -8,7 +8,41 @@ import {
 
 const dateTime = (b) => `${dateLong(b.date)}, ${b.start}–${b.end}`;
 
-export function openBookingModal(booking, { currency, onChanged }) {
+/** «2026-11-03 09:15:00» (UTC из базы) → «12:15» в часовом поясе студии. */
+const clockTime = (utc, timeZone) => new Intl.DateTimeFormat('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone })
+  .format(new Date(`${utc.replace(' ', 'T')}Z`));
+
+function remindersText(b, timeZone) {
+  if (!b.telegram) return 'не отправляются — Telegram не подключён';
+  const parts = [];
+  if (b.remindersSent?.length) parts.push(`авто: ${b.remindersSent.map((m) => (m >= 60 ? `за ${m / 60} ч` : `за ${m} мин`)).join(', ')}`);
+  if (b.lastRemindedAt) parts.push(`вручную в ${clockTime(b.lastRemindedAt, timeZone)}`);
+  return parts.length ? parts.join(' · ') : 'ещё не отправлялись';
+}
+
+/** Кнопка «Напомнить в Telegram»: шлёт напоминание сейчас и обновляет строку статуса. */
+function remindButton(booking, { timeZone, statusEl }) {
+  const btn = h('button', {
+    class: 'btn spacer', type: 'button', disabled: !booking.telegram,
+    title: booking.telegram ? 'Отправить клиенту напоминание о записи прямо сейчас' : 'Клиент не подключил Telegram',
+  }, '🔔 Напомнить в Telegram');
+  btn.addEventListener('click', async () => {
+    btn.disabled = true;
+    try {
+      const updated = await api.post(`/api/admin/bookings/${booking.id}/remind`);
+      statusEl.textContent = remindersText(updated, timeZone);
+      toast('Напоминание отправлено');
+    } catch (err) {
+      handleError(err);
+    } finally {
+      btn.disabled = false;
+    }
+  });
+  return btn;
+}
+
+export function openBookingModal(booking, { currency, timeZone, onChanged }) {
+  const remindersEl = h('dd', {}, remindersText(booking, timeZone));
   const notes = h('textarea', { maxlength: '500', placeholder: 'Заметка для мастеров (не видна клиенту)' }, booking.notes);
   const saveNotes = h('button', { class: 'btn btn--sm', type: 'button', onclick: () => patch({ notes: notes.value }, 'Заметка сохранена') }, 'Сохранить заметку');
 
@@ -31,6 +65,7 @@ export function openBookingModal(booking, { currency, onChanged }) {
   const button = (label, status, opts, cls = '') => h('button', { class: `btn ${cls}`, type: 'button', onclick: () => changeStatus(status, opts) }, label);
   const actions = {
     confirmed: [
+      remindButton(booking, { timeZone, statusEl: remindersEl }),
       button('Выполнена', 'completed', { message: 'Отмечена как выполненная' }, 'btn--primary'),
       button('Не пришла', 'no_show', { message: 'Отмечена как неявка' }),
       button('Отменить запись', 'cancelled', { ask: 'Отменить запись? Клиент получит уведомление в Telegram, если он подключён.', message: 'Запись отменена' }, 'btn--danger'),
@@ -50,7 +85,8 @@ export function openBookingModal(booking, { currency, onChanged }) {
         row('Услуга', booking.serviceName), row('Мастер', booking.masterName),
         row('Когда', dateTime(booking)), row('Стоимость', money(booking.price, currency)),
         row('Источник', SOURCE[booking.source] ?? booking.source),
-        row('Telegram', booking.telegram ? 'подключён — получает напоминания' : 'не подключён')),
+        row('Telegram', booking.telegram ? 'подключён — получает напоминания' : 'не подключён'),
+        h('dt', {}, 'Напоминания'), remindersEl),
       notes, h('div', {}, saveNotes),
     ],
     footer: actions,

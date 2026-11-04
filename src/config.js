@@ -14,6 +14,17 @@ function list(env, key) {
   return (env[key] ?? '').split(',').map((s) => s.trim()).filter(Boolean);
 }
 
+/** REMINDER_MINUTES="120,10" — за сколько минут до визита напомнить клиенту в Telegram. */
+function reminderList(env) {
+  const raw = list(env, 'REMINDER_MINUTES');
+  if (raw.length === 0) return [120, 10];
+  const minutes = raw.map(Number);
+  if (minutes.some((m) => !Number.isInteger(m) || m < 1 || m > 7 * 24 * 60)) {
+    throw new Error(`REMINDER_MINUTES: ожидаются минуты через запятую, например 120,10 — получено "${env.REMINDER_MINUTES}"`);
+  }
+  return [...new Set(minutes)];
+}
+
 export function loadConfig(env = process.env) {
   const warnings = [];
 
@@ -45,6 +56,7 @@ export function loadConfig(env = process.env) {
     leadMin: int(env, 'BOOKING_LEAD_MIN', 60, { min: 0, max: 7 * 24 * 60 }),
     horizonDays: int(env, 'BOOKING_HORIZON_DAYS', 60, { min: 1, max: 365 }),
     cancelMinHours: int(env, 'CANCEL_MIN_HOURS', 3, { min: 0, max: 72 }),
+    reminderMinutes: reminderList(env),
     studio: {
       name: env.STUDIO_NAME || 'Nacré',
       tagline: env.STUDIO_TAGLINE || 'Nail Atelier',

@@ -11,6 +11,7 @@ import {
 } from '../keyboards.js';
 import { clearDraft, getProfile, saveProfile } from '../store.js';
 import { bookingCard, durationText, esc, humanDate, money, timeRange } from '../texts.js';
+import { describeOffsets, reminderOffsets } from '../../domain/reminderRules.js';
 import { draftHelpers, show } from './common.js';
 
 export function createBookingFlow({ dctx, events }) {
@@ -144,7 +145,7 @@ export function createBookingFlow({ dctx, events }) {
     events.emit('booking:created', booking);
     return show(
       ctx,
-      `✅ <b>Вы записаны!</b>\n\n${bookingCard(booking, currency)}\n\n📍 ${esc(cfg.studio.address)}\nНапомним о визите за сутки и за 2 часа.`,
+      `✅ <b>Вы записаны!</b>\n\n${bookingCard(booking, currency)}\n\n📍 ${esc(cfg.studio.address)}\nНапомним о визите ${describeOffsets(reminderOffsets(cfg))}.`,
       new InlineKeyboard().text('📋 Мои записи', 'my').text('‹ В меню', 'menu'),
     );
   }

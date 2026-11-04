@@ -3,6 +3,7 @@ import express from 'express';
 import { daySlots, monthAvailability, nextFreeSlots } from '../domain/availability.js';
 import { createBooking } from '../domain/bookings.js';
 import { listMasters, listServices } from '../domain/catalog.js';
+import { describeOffsets, reminderOffsets } from '../domain/reminderRules.js';
 import { minToHHMM, nowInTz } from '../time.js';
 import { publicMasterDto, serviceDto, slotDto } from './dto.js';
 import { rateLimit } from './rateLimit.js';
@@ -30,6 +31,7 @@ export function publicRoutes({ ctx, events, runtime }) {
       horizonDays: cfg.horizonDays,
       today: nowInTz(cfg.timeZone, ctx.now()).date,
       botUsername: botUsername(),
+      reminders: describeOffsets(reminderOffsets(cfg)),
     }));
   });
 

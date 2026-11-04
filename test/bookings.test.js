@@ -2,8 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { daySlots } from '../src/domain/availability.js';
 import {
-  cancelBooking, createBooking, dueReminders, getBooking, linkBookingToChat, listBookings,
-  listUpcomingForChat, markReminded, setStatus,
+  assertCanRemind, cancelBooking, createBooking, dueReminders, getBooking, linkBookingToChat, listBookings,
+  listUpcomingForChat, markManualReminder, markReminded, setStatus,
 } from '../src/domain/bookings.js';
 import { addMaster, addService, makeCtx, weekdays } from './helpers.js';
 
@@ -136,30 +136,64 @@ test('listUpcomingForChat hides cancelled and past bookings', () => {
   assert.deepEqual(listUpcomingForChat(ctx, 1).map((b) => b.id), [keep.id]);
 });
 
-test('reminders: 24h then 2h, only for linked, confirmed bookings in the future', () => {
-  const { ctx, base } = setup({ now: '2026-11-01T06:00:00Z' }); // за 52 ч до визита
+test('reminders: 2 h then 10 min, only for linked, confirmed bookings in the future', () => {
+  const { ctx, base } = setup({ now: '2026-11-03T05:00:00Z' }); // визит в 10:00, сейчас 05:00
   const b = createBooking(ctx, { ...base, source: 'telegram', tgChatId: 42 });
-  createBooking(ctx, { ...base, startMin: 660, phone: '+79003334455' }); // без Telegram
+  createBooking(ctx, { ...base, startMin: 660, phone: '+998903334455' }); // без Telegram
+  const due = () => dueReminders(ctx).map((r) => [r.booking.id, r.offset]);
 
-  assert.deepEqual(dueReminders(ctx), []);
-  ctx.clock.current = new Date('2026-11-02T11:00:00Z'); // за 23 ч
-  assert.deepEqual(dueReminders(ctx).map((r) => [r.booking.id, r.kind]), [[b.id, '24h']]);
-  markReminded(ctx, b.id, '24h');
-  assert.deepEqual(dueReminders(ctx), []);
-  ctx.clock.current = new Date('2026-11-03T08:30:00Z'); // за 1.5 ч
-  assert.deepEqual(dueReminders(ctx).map((r) => [r.booking.id, r.kind]), [[b.id, '2h']]);
-  markReminded(ctx, b.id, '2h');
-  assert.deepEqual(dueReminders(ctx), []);
-  ctx.clock.current = new Date('2026-11-03T11:00:00Z'); // уже началась
-  assert.deepEqual(dueReminders(ctx), []);
+  assert.deepEqual(due(), []);
+  ctx.clock.current = new Date('2026-11-03T08:05:00Z'); // за 1 ч 55 мин
+  assert.deepEqual(due(), [[b.id, 120]]);
+  markReminded(ctx, b.id, 120);
+  assert.deepEqual(due(), []);
+  ctx.clock.current = new Date('2026-11-03T09:52:00Z'); // за 8 мин
+  assert.deepEqual(due(), [[b.id, 10]]);
+  markReminded(ctx, b.id, 10);
+  assert.deepEqual(due(), []);
+  ctx.clock.current = new Date('2026-11-03T10:05:00Z'); // уже началась
+  assert.deepEqual(due(), []);
 });
 
-test('a booking made close to the visit does not trigger an immediate 24h reminder', () => {
-  const { ctx, base } = setup({ now: '2026-11-03T05:00:00Z' }); // за 5 ч
+test('a booking made shortly before the visit skips reminders whose time has passed', () => {
+  const { ctx, base } = setup({ now: '2026-11-03T08:30:00Z' }); // за 1,5 ч — «за 2 часа» уже поздно
   const b = createBooking(ctx, { ...base, source: 'telegram', tgChatId: 42 });
+  assert.deepEqual(b.remindersSent, [120]);
   assert.deepEqual(dueReminders(ctx), []);
-  ctx.clock.current = new Date('2026-11-03T08:30:00Z');
-  assert.deepEqual(dueReminders(ctx).map((r) => [r.booking.id, r.kind]), [[b.id, '2h']]);
+  ctx.clock.current = new Date('2026-11-03T09:51:00Z');
+  assert.deepEqual(dueReminders(ctx).map((r) => r.offset), [10]);
+});
+
+test('if the server was down, only the latest missed reminder is sent', () => {
+  const { ctx, base } = setup({ now: '2026-11-03T05:00:00Z' });
+  const b = createBooking(ctx, { ...base, source: 'telegram', tgChatId: 42 });
+  ctx.clock.current = new Date('2026-11-03T09:55:00Z'); // проспали «за 2 часа»
+  assert.deepEqual(dueReminders(ctx).map((r) => r.offset), [10]);
+  markReminded(ctx, b.id, 10);
+  assert.deepEqual(dueReminders(ctx), [], '«за 2 часа» уже не отправляем');
+});
+
+test('reminder schedule follows the config', () => {
+  const { ctx, base } = setup({ now: '2026-11-02T05:00:00Z', overrides: { reminderMinutes: [1440, 30] } });
+  createBooking(ctx, { ...base, source: 'telegram', tgChatId: 42 });
+  ctx.clock.current = new Date('2026-11-02T10:30:00Z'); // за 23,5 ч
+  assert.deepEqual(dueReminders(ctx).map((r) => r.offset), [1440]);
+});
+
+test('assertCanRemind allows a manual reminder only for upcoming Telegram-linked bookings, once a minute', () => {
+  const { ctx, base } = setup({ now: '2026-11-03T05:00:00Z' });
+  const linked = createBooking(ctx, { ...base, source: 'telegram', tgChatId: 42 });
+  const web = createBooking(ctx, { ...base, startMin: 660, phone: '+998903334455' });
+  assert.doesNotThrow(() => assertCanRemind(ctx, getBooking(ctx, linked.id)));
+  assert.throws(() => assertCanRemind(ctx, getBooking(ctx, web.id)), { code: 'no_telegram' });
+
+  markManualReminder(ctx, linked.id);
+  assert.throws(() => assertCanRemind(ctx, getBooking(ctx, linked.id)), { code: 'too_soon' });
+  ctx.clock.current = new Date('2026-11-03T05:02:00Z');
+  assert.doesNotThrow(() => assertCanRemind(ctx, getBooking(ctx, linked.id)));
+
+  cancelBooking(ctx, linked.id, { by: 'admin' });
+  assert.throws(() => assertCanRemind(ctx, getBooking(ctx, linked.id)), { code: 'not_remindable' });
 });
 
 test('listBookings filters by range, master, status and free-text search', () => {

@@ -89,6 +89,13 @@ const MIGRATIONS = [
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
   `,
+  // 2: напоминания по настраиваемому расписанию (по умолчанию за 2 ч и за 10 мин) и ручные из админки.
+  `
+  ALTER TABLE bookings ADD COLUMN reminders_sent TEXT NOT NULL DEFAULT '';
+  ALTER TABLE bookings ADD COLUMN last_reminded_at TEXT;
+  UPDATE bookings SET reminders_sent = '1440,120' WHERE reminded_2h = 1;
+  UPDATE bookings SET reminders_sent = '1440' WHERE reminded_2h = 0 AND reminded_24h = 1;
+  `,
 ];
 
 export function openDb(path = ':memory:') {

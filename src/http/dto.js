@@ -38,6 +38,7 @@ export function bookingDto(b) {
     startMin: b.startMin, endMin: b.endMin, start: hhmm(b.startMin), end: hhmm(b.endMin),
     clientName: b.clientName, clientPhone: b.clientPhone, source: b.source, status: b.status,
     telegram: b.tgChatId != null, notes: b.notes, createdAt: b.createdAt,
+    remindersSent: b.remindersSent, lastRemindedAt: b.lastRemindedAt,
   };
 }
 

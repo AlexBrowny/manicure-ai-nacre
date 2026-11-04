@@ -1,9 +1,12 @@
 // Работа со временем в админке: профиль, дашборд, расписание дня, свободные слоты, записи.
 import express from 'express';
 import { daySlots } from '../../domain/availability.js';
-import { createBooking, getBooking, listBookings, setStatus, updateNotes } from '../../domain/bookings.js';
+import {
+  assertCanRemind, createBooking, getBooking, listBookings, markManualReminder, setStatus, updateNotes,
+} from '../../domain/bookings.js';
 import { daySchedule } from '../../domain/schedule.js';
 import { dashboardStats } from '../../domain/stats.js';
+import { conflict } from '../../errors.js';
 import { nowInTz } from '../../time.js';
 import { bookingDto, slotDto } from '../dto.js';
 import { ok } from '../respond.js';
@@ -11,7 +14,7 @@ import {
   bookingBody, bookingPatch, bookingsQuery, dashboardQuery, dayQuery, idParam, slotsQuery,
 } from '../schemas.js';
 
-export function adminBookingRoutes({ ctx, events }) {
+export function adminBookingRoutes({ ctx, events, runtime = {} }) {
   const router = express.Router();
   const { cfg } = ctx;
 
@@ -63,6 +66,16 @@ export function adminBookingRoutes({ ctx, events }) {
       events.emit('booking:status', { booking: after, previous: before.status, by: 'admin' });
     }
     res.json(ok(bookingDto(after)));
+  });
+
+  // Кнопка «Напомнить в Telegram» в карточке записи.
+  router.post('/bookings/:id/remind', async (req, res) => {
+    const booking = getBooking(ctx, idParam.parse(req.params).id);
+    assertCanRemind(ctx, booking);
+    if (!runtime.sendReminder) throw conflict('Telegram-бот сейчас не запущен — напоминание отправить нельзя.', 'bot_offline');
+    await runtime.sendReminder(booking);
+    markManualReminder(ctx, booking.id);
+    res.json(ok(bookingDto(getBooking(ctx, booking.id))));
   });
 
   return router;
