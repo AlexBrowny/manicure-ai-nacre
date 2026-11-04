@@ -5,13 +5,19 @@ import { openDb } from '../src/db.js';
 import { clearDemo, seedDefaults, seedDemo } from '../src/seed.js';
 
 const cfg = loadConfig();
-const ctx = { db: openDb(cfg.dbPath), cfg, now: () => new Date() };
-const log = (msg) => process.stdout.write(`${msg}\n`);
+const db = await openDb({ url: cfg.databaseUrl, migrationUrl: cfg.databaseUrlDirect });
+const ctx = { db, cfg, now: () => new Date() };
+const log = (msg) => process.stdout.write(`${msg}
+`);
 
-if (process.argv.includes('--clear')) {
-  log(`Удалено демо-записей: ${clearDemo(ctx)}`);
-} else {
-  seedDefaults(ctx);
-  clearDemo(ctx);
-  log(`Создано демо-записей: ${seedDemo(ctx)}`);
+try {
+  if (process.argv.includes('--clear')) {
+    log(`Удалено демо-записей: ${await clearDemo(ctx)}`);
+  } else {
+    await seedDefaults(ctx);
+    await clearDemo(ctx);
+    log(`Создано демо-записей: ${await seedDemo(ctx)}`);
+  }
+} finally {
+  await db.close();
 }

@@ -14,9 +14,9 @@ function shiftOn(master, date) {
  * Активные мастера плюс отключённые, у которых в этот день есть записи.
  * @returns {{ id, name, title, color, shift, dayOff, bookings }[]}
  */
-export function daySchedule(ctx, date) {
-  const bookings = listBookings(ctx, { from: date, to: date }).filter((b) => b.status !== 'cancelled');
-  return listMasters(ctx)
+export async function daySchedule(ctx, date) {
+  const bookings = (await listBookings(ctx, { from: date, to: date })).filter((b) => b.status !== 'cancelled');
+  return (await listMasters(ctx))
     .filter((m) => m.active || bookings.some((b) => b.masterId === m.id))
     .map((m) => ({
       id: m.id, name: m.name, title: m.title, color: m.color,

@@ -14,18 +14,18 @@ events.on('booking:created', (b) => emitted.push(['created', b.id]));
 events.on('booking:status', (e) => emitted.push(['status', e.booking.id, e.booking.status]));
 
 before(async () => {
-  ctx = makeCtx();
+  ctx = await makeCtx();
   ctx.cfg.admin = { password: 'correct horse', sessionSecret: 'test-secret', sessionHours: 1, cookieSecure: false };
   ctx.cfg.telegram = { token: '', botUsername: 'nacre_test_bot', adminChatIds: [] };
   ctx.cfg.studio = { name: 'Nacré' };
-  seedDefaults(ctx);
+  await seedDefaults(ctx);
   const quiet = { error() {}, log() {} };
   const app = createApp({ ctx, events, logger: quiet });
   await new Promise((resolve) => { server = app.listen(0, '127.0.0.1', resolve); });
   base = `http://127.0.0.1:${server.address().port}`;
 });
 
-after(() => server.close());
+after(async () => server.close());
 
 async function call(path, { method = 'GET', body, cookie, headers = {} } = {}) {
   const res = await fetch(`${base}${path}`, {

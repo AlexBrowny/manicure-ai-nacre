@@ -9,204 +9,204 @@ import { addMaster, addService, makeCtx, weekdays } from './helpers.js';
 
 const TUE = '2026-11-03'; // «сегодня» в makeCtx — понедельник 2026-11-02 07:00 UTC
 
-function setup(opts) {
-  const ctx = makeCtx(opts);
-  const service = addService(ctx);
-  const master = addMaster(ctx, { serviceIds: [service.id] });
+async function setup(opts) {
+  const ctx = await makeCtx(opts);
+  const service = await addService(ctx);
+  const master = await addMaster(ctx, { serviceIds: [service.id] });
   const base = { serviceId: service.id, masterId: master.id, date: TUE, startMin: 600, name: 'Анна', phone: '8 90 111-22-33', source: 'web' };
   return { ctx, service, master, base };
 }
 
-test('createBooking stores a normalized booking and blocks the slot', () => {
-  const { ctx, service, master, base } = setup();
-  const b = createBooking(ctx, base);
+test('createBooking stores a normalized booking and blocks the slot', async () => {
+  const { ctx, service, master, base } = await setup();
+  const b = await createBooking(ctx, base);
   assert.equal(b.status, 'confirmed');
   assert.equal(b.clientPhone, '+998901112233');
   assert.equal(b.endMin, 660);
   assert.equal(b.price, 1500);
   assert.equal(b.masterId, master.id);
   assert.match(b.linkToken, /^[0-9a-f]{24}$/);
-  const free = daySlots(ctx, { serviceId: service.id, masterId: master.id, date: TUE }).map((s) => s.start);
+  const free = (await daySlots(ctx, { serviceId: service.id, masterId: master.id, date: TUE })).map((s) => s.start);
   assert.ok(!free.includes(600) && !free.includes(570) && free.includes(660));
 });
 
-test('createBooking rejects the same or overlapping slot', () => {
-  const { ctx, base } = setup();
-  createBooking(ctx, base);
-  assert.throws(() => createBooking(ctx, base), { code: 'slot_unavailable' });
-  assert.throws(() => createBooking(ctx, { ...base, startMin: 630 }), { code: 'slot_unavailable' });
-  assert.doesNotThrow(() => createBooking(ctx, { ...base, startMin: 660, phone: '+79002223344' }));
+test('createBooking rejects the same or overlapping slot', async () => {
+  const { ctx, base } = await setup();
+  await createBooking(ctx, base);
+  await assert.rejects(async () => await createBooking(ctx, base), { code: 'slot_unavailable' });
+  await assert.rejects(async () => await createBooking(ctx, { ...base, startMin: 630 }), { code: 'slot_unavailable' });
+  await assert.doesNotReject(async () => createBooking(ctx, { ...base, startMin: 660, phone: '+79002223344' }));
 });
 
-test('createBooking rejects times outside the shift and during the break', () => {
-  const { ctx, base } = setup();
-  assert.throws(() => createBooking(ctx, { ...base, startMin: 540 }), { code: 'slot_unavailable' });
-  assert.throws(() => createBooking(ctx, { ...base, startMin: 840 }), { code: 'slot_unavailable' });
-  assert.throws(() => createBooking(ctx, { ...base, startMin: 1110 }), { code: 'slot_unavailable' });
+test('createBooking rejects times outside the shift and during the break', async () => {
+  const { ctx, base } = await setup();
+  await assert.rejects(async () => await createBooking(ctx, { ...base, startMin: 540 }), { code: 'slot_unavailable' });
+  await assert.rejects(async () => await createBooking(ctx, { ...base, startMin: 840 }), { code: 'slot_unavailable' });
+  await assert.rejects(async () => await createBooking(ctx, { ...base, startMin: 1110 }), { code: 'slot_unavailable' });
 });
 
-test('createBooking validates contact data and the service', () => {
-  const { ctx, service, base } = setup();
-  assert.throws(() => createBooking(ctx, { ...base, name: 'А' }), { code: 'invalid_name' });
-  assert.throws(() => createBooking(ctx, { ...base, phone: '123' }), { code: 'invalid_phone' });
-  assert.throws(() => createBooking(ctx, { ...base, serviceId: 999 }), { code: 'not_found' });
-  ctx.db.prepare('UPDATE services SET active = 0 WHERE id = ?').run(service.id);
-  assert.throws(() => createBooking(ctx, base), { code: 'not_found' });
+test('createBooking validates contact data and the service', async () => {
+  const { ctx, service, base } = await setup();
+  await assert.rejects(async () => await createBooking(ctx, { ...base, name: 'А' }), { code: 'invalid_name' });
+  await assert.rejects(async () => await createBooking(ctx, { ...base, phone: '123' }), { code: 'invalid_phone' });
+  await assert.rejects(async () => await createBooking(ctx, { ...base, serviceId: 999 }), { code: 'not_found' });
+  await ctx.db.run('UPDATE services SET active = FALSE WHERE id = ?', [service.id]);
+  await assert.rejects(async () => await createBooking(ctx, base), { code: 'not_found' });
 });
 
-test('"any master" books the least loaded master and falls back when one is busy', () => {
-  const ctx = makeCtx();
-  const service = addService(ctx);
-  const a = addMaster(ctx, { name: 'А', serviceIds: [service.id] });
-  const b = addMaster(ctx, { name: 'Б', serviceIds: [service.id] });
+test('"any master" books the least loaded master and falls back when one is busy', async () => {
+  const ctx = await makeCtx();
+  const service = await addService(ctx);
+  const a = await addMaster(ctx, { name: 'А', serviceIds: [service.id] });
+  const b = await addMaster(ctx, { name: 'Б', serviceIds: [service.id] });
   const base = { serviceId: service.id, masterId: null, date: TUE, name: 'Анна', source: 'web' };
 
-  const first = createBooking(ctx, { ...base, startMin: 600, phone: '+79000000001' });
+  const first = await createBooking(ctx, { ...base, startMin: 600, phone: '+79000000001' });
   assert.equal(first.masterId, a.id); // при равной загрузке — первый по порядку
-  const second = createBooking(ctx, { ...base, startMin: 600, phone: '+79000000002' });
+  const second = await createBooking(ctx, { ...base, startMin: 600, phone: '+79000000002' });
   assert.equal(second.masterId, b.id); // у А занято в это время
-  assert.throws(() => createBooking(ctx, { ...base, startMin: 600, phone: '+79000000003' }), { code: 'slot_unavailable' });
+  await assert.rejects(async () => await createBooking(ctx, { ...base, startMin: 600, phone: '+79000000003' }), { code: 'slot_unavailable' });
 
-  const third = createBooking(ctx, { ...base, startMin: 720, phone: '+79000000004' });
+  const third = await createBooking(ctx, { ...base, startMin: 720, phone: '+79000000004' });
   assert.equal(third.masterId, a.id, 'у А и Б по 60 мин — снова первый'); // оба по 60 мин
-  const fourth = createBooking(ctx, { ...base, startMin: 780, phone: '+79000000005' });
+  const fourth = await createBooking(ctx, { ...base, startMin: 780, phone: '+79000000005' });
   assert.equal(fourth.masterId, b.id, 'у А уже 120 мин, у Б 60');
 });
 
-test('createBooking caps active future bookings per phone for public sources', () => {
-  const { ctx, base } = setup();
-  for (const startMin of [600, 660, 720, 900, 960]) createBooking(ctx, { ...base, startMin });
-  assert.throws(() => createBooking(ctx, { ...base, date: '2026-11-04', startMin: 600 }), { code: 'too_many_bookings' });
-  assert.doesNotThrow(() => createBooking(ctx, { ...base, date: '2026-11-04', startMin: 600, source: 'admin' }));
+test('createBooking caps active future bookings per phone for public sources', async () => {
+  const { ctx, base } = await setup();
+  for (const startMin of [600, 660, 720, 900, 960]) await createBooking(ctx, { ...base, startMin });
+  await assert.rejects(async () => await createBooking(ctx, { ...base, date: '2026-11-04', startMin: 600 }), { code: 'too_many_bookings' });
+  await assert.doesNotReject(async () => createBooking(ctx, { ...base, date: '2026-11-04', startMin: 600, source: 'admin' }));
 });
 
-test('cancelBooking by admin frees the slot', () => {
-  const { ctx, service, master, base } = setup();
-  const b = createBooking(ctx, base);
-  cancelBooking(ctx, b.id, { by: 'admin' });
-  assert.equal(getBooking(ctx, b.id).status, 'cancelled');
-  const free = daySlots(ctx, { serviceId: service.id, masterId: master.id, date: TUE }).map((s) => s.start);
+test('cancelBooking by admin frees the slot', async () => {
+  const { ctx, service, master, base } = await setup();
+  const b = await createBooking(ctx, base);
+  await cancelBooking(ctx, b.id, { by: 'admin' });
+  assert.equal((await getBooking(ctx, b.id)).status, 'cancelled');
+  const free = (await daySlots(ctx, { serviceId: service.id, masterId: master.id, date: TUE })).map((s) => s.start);
   assert.ok(free.includes(600));
-  assert.throws(() => cancelBooking(ctx, b.id, { by: 'admin' }), { code: 'not_cancellable' });
+  await assert.rejects(async () => await cancelBooking(ctx, b.id, { by: 'admin' }), { code: 'not_cancellable' });
 });
 
-test('cancelBooking by client requires the owning chat and enough notice', () => {
-  const { ctx, base } = setup({ now: '2026-11-03T05:00:00Z' }); // за 5 ч до 10:00
-  const b = createBooking(ctx, { ...base, source: 'telegram', tgChatId: 777 });
-  assert.throws(() => cancelBooking(ctx, b.id, { by: 'client', tgChatId: 888 }), { code: 'not_found' });
+test('cancelBooking by client requires the owning chat and enough notice', async () => {
+  const { ctx, base } = await setup({ now: '2026-11-03T05:00:00Z' }); // за 5 ч до 10:00
+  const b = await createBooking(ctx, { ...base, source: 'telegram', tgChatId: 777 });
+  await assert.rejects(async () => await cancelBooking(ctx, b.id, { by: 'client', tgChatId: 888 }), { code: 'not_found' });
   ctx.clock.current = new Date('2026-11-03T08:00:00Z'); // за 2 ч < 3 ч
-  assert.throws(() => cancelBooking(ctx, b.id, { by: 'client', tgChatId: 777 }), { code: 'too_late' });
+  await assert.rejects(async () => await cancelBooking(ctx, b.id, { by: 'client', tgChatId: 777 }), { code: 'too_late' });
   ctx.clock.current = new Date('2026-11-03T06:30:00Z'); // за 3.5 ч
-  assert.equal(cancelBooking(ctx, b.id, { by: 'client', tgChatId: 777 }).status, 'cancelled');
+  assert.equal((await cancelBooking(ctx, b.id, { by: 'client', tgChatId: 777 })).status, 'cancelled');
 });
 
-test('setStatus cannot revive a cancelled booking over a newly taken slot', () => {
-  const { ctx, base } = setup();
-  const old = createBooking(ctx, base);
-  cancelBooking(ctx, old.id, { by: 'admin' });
-  const fresh = createBooking(ctx, { ...base, phone: '+79005556677' });
-  assert.throws(() => setStatus(ctx, old.id, 'confirmed'), { code: 'slot_unavailable' });
-  assert.throws(() => setStatus(ctx, old.id, 'no_show'), { code: 'slot_unavailable' });
-  assert.equal(setStatus(ctx, fresh.id, 'completed').status, 'completed');
+test('setStatus cannot revive a cancelled booking over a newly taken slot', async () => {
+  const { ctx, base } = await setup();
+  const old = await createBooking(ctx, base);
+  await cancelBooking(ctx, old.id, { by: 'admin' });
+  const fresh = await createBooking(ctx, { ...base, phone: '+79005556677' });
+  await assert.rejects(async () => await setStatus(ctx, old.id, 'confirmed'), { code: 'slot_unavailable' });
+  await assert.rejects(async () => await setStatus(ctx, old.id, 'no_show'), { code: 'slot_unavailable' });
+  assert.equal((await setStatus(ctx, fresh.id, 'completed')).status, 'completed');
 });
 
-test('setStatus rejects unknown statuses', () => {
-  const { ctx, base } = setup();
-  const b = createBooking(ctx, base);
-  assert.throws(() => setStatus(ctx, b.id, 'banana'), { code: 'bad_request' });
+test('setStatus rejects unknown statuses', async () => {
+  const { ctx, base } = await setup();
+  const b = await createBooking(ctx, base);
+  await assert.rejects(async () => await setStatus(ctx, b.id, 'banana'), { code: 'bad_request' });
 });
 
-test('linkBookingToChat attaches a web booking to a Telegram chat once', () => {
-  const { ctx, base } = setup();
-  const b = createBooking(ctx, base);
-  const linked = linkBookingToChat(ctx, b.linkToken, 555);
+test('linkBookingToChat attaches a web booking to a Telegram chat once', async () => {
+  const { ctx, base } = await setup();
+  const b = await createBooking(ctx, base);
+  const linked = await linkBookingToChat(ctx, b.linkToken, 555);
   assert.equal(linked.id, b.id);
-  assert.equal(listUpcomingForChat(ctx, 555).length, 1);
-  assert.equal(linkBookingToChat(ctx, b.linkToken, 999), null, 'токен одноразовый');
-  assert.equal(linkBookingToChat(ctx, 'nope', 555), null);
+  assert.equal((await listUpcomingForChat(ctx, 555)).length, 1);
+  assert.equal(await linkBookingToChat(ctx, b.linkToken, 999), null, 'токен одноразовый');
+  assert.equal(await linkBookingToChat(ctx, 'nope', 555), null);
 });
 
-test('listUpcomingForChat hides cancelled and past bookings', () => {
-  const { ctx, base } = setup();
-  const keep = createBooking(ctx, { ...base, source: 'telegram', tgChatId: 1 });
-  const drop = createBooking(ctx, { ...base, startMin: 660, source: 'telegram', tgChatId: 1 });
-  cancelBooking(ctx, drop.id, { by: 'admin' });
-  createBooking(ctx, { ...base, date: '2026-11-02', startMin: 600, source: 'telegram', tgChatId: 1, ignoreLead: true });
+test('listUpcomingForChat hides cancelled and past bookings', async () => {
+  const { ctx, base } = await setup();
+  const keep = await createBooking(ctx, { ...base, source: 'telegram', tgChatId: 1 });
+  const drop = await createBooking(ctx, { ...base, startMin: 660, source: 'telegram', tgChatId: 1 });
+  await cancelBooking(ctx, drop.id, { by: 'admin' });
+  await createBooking(ctx, { ...base, date: '2026-11-02', startMin: 600, source: 'telegram', tgChatId: 1, ignoreLead: true });
   ctx.clock.current = new Date('2026-11-02T12:00:00Z');
-  assert.deepEqual(listUpcomingForChat(ctx, 1).map((b) => b.id), [keep.id]);
+  assert.deepEqual((await listUpcomingForChat(ctx, 1)).map((b) => b.id), [keep.id]);
 });
 
-test('reminders: 2 h then 10 min, only for linked, confirmed bookings in the future', () => {
-  const { ctx, base } = setup({ now: '2026-11-03T05:00:00Z' }); // визит в 10:00, сейчас 05:00
-  const b = createBooking(ctx, { ...base, source: 'telegram', tgChatId: 42 });
-  createBooking(ctx, { ...base, startMin: 660, phone: '+998903334455' }); // без Telegram
-  const due = () => dueReminders(ctx).map((r) => [r.booking.id, r.offset]);
+test('reminders: 2 h then 10 min, only for linked, confirmed bookings in the future', async () => {
+  const { ctx, base } = await setup({ now: '2026-11-03T05:00:00Z' }); // визит в 10:00, сейчас 05:00
+  const b = await createBooking(ctx, { ...base, source: 'telegram', tgChatId: 42 });
+  await createBooking(ctx, { ...base, startMin: 660, phone: '+998903334455' }); // без Telegram
+  const due = async () => (await dueReminders(ctx)).map((r) => [r.booking.id, r.offset]);
 
-  assert.deepEqual(due(), []);
+  assert.deepEqual(await due(), []);
   ctx.clock.current = new Date('2026-11-03T08:05:00Z'); // за 1 ч 55 мин
-  assert.deepEqual(due(), [[b.id, 120]]);
-  markReminded(ctx, b.id, 120);
-  assert.deepEqual(due(), []);
+  assert.deepEqual(await due(), [[b.id, 120]]);
+  await markReminded(ctx, b.id, 120);
+  assert.deepEqual(await due(), []);
   ctx.clock.current = new Date('2026-11-03T09:52:00Z'); // за 8 мин
-  assert.deepEqual(due(), [[b.id, 10]]);
-  markReminded(ctx, b.id, 10);
-  assert.deepEqual(due(), []);
+  assert.deepEqual(await due(), [[b.id, 10]]);
+  await markReminded(ctx, b.id, 10);
+  assert.deepEqual(await due(), []);
   ctx.clock.current = new Date('2026-11-03T10:05:00Z'); // уже началась
-  assert.deepEqual(due(), []);
+  assert.deepEqual(await due(), []);
 });
 
-test('a booking made shortly before the visit skips reminders whose time has passed', () => {
-  const { ctx, base } = setup({ now: '2026-11-03T08:30:00Z' }); // за 1,5 ч — «за 2 часа» уже поздно
-  const b = createBooking(ctx, { ...base, source: 'telegram', tgChatId: 42 });
+test('a booking made shortly before the visit skips reminders whose time has passed', async () => {
+  const { ctx, base } = await setup({ now: '2026-11-03T08:30:00Z' }); // за 1,5 ч — «за 2 часа» уже поздно
+  const b = await createBooking(ctx, { ...base, source: 'telegram', tgChatId: 42 });
   assert.deepEqual(b.remindersSent, [120]);
-  assert.deepEqual(dueReminders(ctx), []);
+  assert.deepEqual(await dueReminders(ctx), []);
   ctx.clock.current = new Date('2026-11-03T09:51:00Z');
-  assert.deepEqual(dueReminders(ctx).map((r) => r.offset), [10]);
+  assert.deepEqual((await dueReminders(ctx)).map((r) => r.offset), [10]);
 });
 
-test('if the server was down, only the latest missed reminder is sent', () => {
-  const { ctx, base } = setup({ now: '2026-11-03T05:00:00Z' });
-  const b = createBooking(ctx, { ...base, source: 'telegram', tgChatId: 42 });
+test('if the server was down, only the latest missed reminder is sent', async () => {
+  const { ctx, base } = await setup({ now: '2026-11-03T05:00:00Z' });
+  const b = await createBooking(ctx, { ...base, source: 'telegram', tgChatId: 42 });
   ctx.clock.current = new Date('2026-11-03T09:55:00Z'); // проспали «за 2 часа»
-  assert.deepEqual(dueReminders(ctx).map((r) => r.offset), [10]);
-  markReminded(ctx, b.id, 10);
-  assert.deepEqual(dueReminders(ctx), [], '«за 2 часа» уже не отправляем');
+  assert.deepEqual((await dueReminders(ctx)).map((r) => r.offset), [10]);
+  await markReminded(ctx, b.id, 10);
+  assert.deepEqual(await dueReminders(ctx), [], '«за 2 часа» уже не отправляем');
 });
 
-test('reminder schedule follows the config', () => {
-  const { ctx, base } = setup({ now: '2026-11-02T05:00:00Z', overrides: { reminderMinutes: [1440, 30] } });
-  createBooking(ctx, { ...base, source: 'telegram', tgChatId: 42 });
+test('reminder schedule follows the config', async () => {
+  const { ctx, base } = await setup({ now: '2026-11-02T05:00:00Z', overrides: { reminderMinutes: [1440, 30] } });
+  await createBooking(ctx, { ...base, source: 'telegram', tgChatId: 42 });
   ctx.clock.current = new Date('2026-11-02T10:30:00Z'); // за 23,5 ч
-  assert.deepEqual(dueReminders(ctx).map((r) => r.offset), [1440]);
+  assert.deepEqual((await dueReminders(ctx)).map((r) => r.offset), [1440]);
 });
 
-test('assertCanRemind allows a manual reminder only for upcoming Telegram-linked bookings, once a minute', () => {
-  const { ctx, base } = setup({ now: '2026-11-03T05:00:00Z' });
-  const linked = createBooking(ctx, { ...base, source: 'telegram', tgChatId: 42 });
-  const web = createBooking(ctx, { ...base, startMin: 660, phone: '+998903334455' });
-  assert.doesNotThrow(() => assertCanRemind(ctx, getBooking(ctx, linked.id)));
-  assert.throws(() => assertCanRemind(ctx, getBooking(ctx, web.id)), { code: 'no_telegram' });
+test('assertCanRemind allows a manual reminder only for upcoming Telegram-linked bookings, once a minute', async () => {
+  const { ctx, base } = await setup({ now: '2026-11-03T05:00:00Z' });
+  const linked = await createBooking(ctx, { ...base, source: 'telegram', tgChatId: 42 });
+  const web = await createBooking(ctx, { ...base, startMin: 660, phone: '+998903334455' });
+  { const fresh = await getBooking(ctx, linked.id); assert.doesNotThrow(() => assertCanRemind(ctx, fresh)); }
+  await assert.rejects(async () => assertCanRemind(ctx, await getBooking(ctx, web.id)), { code: 'no_telegram' });
 
-  markManualReminder(ctx, linked.id);
-  assert.throws(() => assertCanRemind(ctx, getBooking(ctx, linked.id)), { code: 'too_soon' });
+  await markManualReminder(ctx, linked.id);
+  await assert.rejects(async () => assertCanRemind(ctx, await getBooking(ctx, linked.id)), { code: 'too_soon' });
   ctx.clock.current = new Date('2026-11-03T05:02:00Z');
-  assert.doesNotThrow(() => assertCanRemind(ctx, getBooking(ctx, linked.id)));
+  { const fresh = await getBooking(ctx, linked.id); assert.doesNotThrow(() => assertCanRemind(ctx, fresh)); }
 
-  cancelBooking(ctx, linked.id, { by: 'admin' });
-  assert.throws(() => assertCanRemind(ctx, getBooking(ctx, linked.id)), { code: 'not_remindable' });
+  await cancelBooking(ctx, linked.id, { by: 'admin' });
+  await assert.rejects(async () => assertCanRemind(ctx, await getBooking(ctx, linked.id)), { code: 'not_remindable' });
 });
 
-test('listBookings filters by range, master, status and free-text search', () => {
-  const { ctx, master, base } = setup();
-  createBooking(ctx, base);
-  const other = createBooking(ctx, { ...base, startMin: 660, name: 'Борис Петров', phone: '+79007778899' });
-  cancelBooking(ctx, other.id, { by: 'admin' });
+test('listBookings filters by range, master, status and free-text search', async () => {
+  const { ctx, master, base } = await setup();
+  await createBooking(ctx, base);
+  const other = await createBooking(ctx, { ...base, startMin: 660, name: 'Борис Петров', phone: '+79007778899' });
+  await cancelBooking(ctx, other.id, { by: 'admin' });
 
-  assert.equal(listBookings(ctx, { from: TUE, to: TUE }).length, 2);
-  assert.equal(listBookings(ctx, { from: '2026-11-04', to: '2026-11-05' }).length, 0);
-  assert.equal(listBookings(ctx, { masterId: master.id + 1 }).length, 0);
-  assert.equal(listBookings(ctx, { status: 'cancelled' }).length, 1);
-  assert.equal(listBookings(ctx, { q: 'борис' }).length, 1);
-  assert.equal(listBookings(ctx, { q: '7778899' }).length, 1);
-  assert.equal(listBookings(ctx, { q: '100%' }).length, 0, 'поисковая строка не работает как шаблон');
+  assert.equal((await listBookings(ctx, { from: TUE, to: TUE })).length, 2);
+  assert.equal((await listBookings(ctx, { from: '2026-11-04', to: '2026-11-05' })).length, 0);
+  assert.equal((await listBookings(ctx, { masterId: master.id + 1 })).length, 0);
+  assert.equal((await listBookings(ctx, { status: 'cancelled' })).length, 1);
+  assert.equal((await listBookings(ctx, { q: 'борис' })).length, 1);
+  assert.equal((await listBookings(ctx, { q: '7778899' })).length, 1);
+  assert.equal((await listBookings(ctx, { q: '100%' })).length, 0, 'поисковая строка не работает как шаблон');
 });

@@ -11,14 +11,14 @@ export function createReminders({ api, dctx, logger }) {
 
   /** Отправляет все автоматические напоминания, которым пришло время. Возвращает их число. */
   async function sendReminders() {
-    const due = dueReminders(dctx);
+    const due = await dueReminders(dctx);
     for (const { booking, offset } of due) {
       try {
         await api.sendMessage(booking.tgChatId, reminderText(booking, dctx.cfg.currency, offset), HTML);
       } catch (err) {
         logger.error(`Напоминание по записи ${booking.id} не доставлено:`, err.message);
       }
-      markReminded(dctx, booking.id, offset); // даже при ошибке — иначе будем стучаться бесконечно
+      await markReminded(dctx, booking.id, offset); // даже при ошибке — иначе будем стучаться бесконечно
     }
     return due.length;
   }

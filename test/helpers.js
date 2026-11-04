@@ -1,9 +1,19 @@
-import { openDb } from '../src/db.js';
+import { openMemoryDb } from '../src/db.js';
 import { createMaster, createService } from '../src/domain/catalog.js';
 
-/** Контекст с in-memory БД и управляемыми часами. 2026-11-02 — понедельник, зона UTC. */
-export function makeCtx({ now = '2026-11-02T07:00:00Z', overrides = {} } = {}) {
-  const db = openDb(':memory:');
+const TABLES = 'bookings, master_days_off, master_schedule, master_services, masters, services, tg_profiles, tg_drafts';
+let shared; // PGlite стартует несколько секунд — одна база на файл тестов, очищаем перед каждым makeCtx
+
+async function freshDb() {
+  shared ??= openMemoryDb();
+  const db = await shared;
+  await db.run(`TRUNCATE ${TABLES} RESTART IDENTITY CASCADE`);
+  return db;
+}
+
+/** Контекст с in-memory Postgres (PGlite) и управляемыми часами. 2026-11-02 — понедельник, зона UTC. */
+export async function makeCtx({ now = '2026-11-02T07:00:00Z', overrides = {} } = {}) {
+  const db = await freshDb();
   const clock = { current: new Date(now) };
   const cfg = {
     timeZone: 'UTC',

@@ -14,11 +14,11 @@ let dctx; let events; let sent; let app; let nextMessageId;
 
 const quiet = { error() {}, log() {} };
 
-beforeEach(() => {
-  dctx = makeCtx(); // Пн 2026-11-02 07:00 UTC
+beforeEach(async () => {
+  dctx = await makeCtx(); // Пн 2026-11-02 07:00 UTC
   dctx.cfg.telegram = { token: 'TEST:TOKEN', botUsername: 'nacre_bot', adminChatIds: [String(ADMIN_CHAT)] };
   dctx.cfg.studio = { name: 'Nacré', tagline: 'Nail Atelier', address: 'ул. Тестовая, 1', phone: '+998 90 000-00-00', hours: '10–21', instagram: '' };
-  seedDefaults(dctx);
+  await seedDefaults(dctx);
   events = new EventEmitter();
   sent = [];
   nextMessageId = 100;
@@ -121,7 +121,7 @@ test('full booking: contact shared, confirmed, stored, admin notified, profile r
   await tap('ok');
   assert.match(lastText(), /Вы записаны/);
 
-  const [booking] = listBookings(dctx, {});
+  const [booking] = await listBookings(dctx, {});
   assert.equal(booking.source, 'telegram');
   assert.equal(booking.tgChatId, CLIENT.id);
   assert.equal(booking.clientPhone, '+998901112233');
@@ -173,12 +173,12 @@ test('the name can be edited on the confirmation screen and is HTML-escaped in m
 
 test('if the slot is taken between choosing and confirming the client is sent back to pick a time', async () => {
   await walkToConfirm({ masterData: 'mst:1' });
-  const { startMin, date } = (await import('../src/bot/store.js')).getDraft(dctx.db, CLIENT.id);
+  const { startMin, date } = await (await import('../src/bot/store.js')).getDraft(dctx.db, CLIENT.id);
   const { createBooking } = await import('../src/domain/bookings.js');
-  createBooking(dctx, { serviceId: 1, masterId: 1, date, startMin, name: 'Другая клиентка', phone: '+79990001122', source: 'web' });
+  await createBooking(dctx, { serviceId: 1, masterId: 1, date, startMin, name: 'Другая клиентка', phone: '+79990001122', source: 'web' });
   await tap('ok');
   assert.match(lastText(), /только что заняли/);
-  assert.equal(listBookings(dctx, {}).length, 1);
+  assert.equal((await listBookings(dctx, {})).length, 1);
 });
 
 test('my bookings lists upcoming visits and the client can cancel them', async () => {
@@ -191,7 +191,7 @@ test('my bookings lists upcoming visits and the client can cancel them', async (
   assert.match(lastText(), /Отменить запись/);
   await tap(cancelData.replace('cx:', 'cxy:'));
   assert.match(lastText(), /Запись отменена/);
-  assert.equal(listBookings(dctx, {})[0].status, 'cancelled');
+  assert.equal((await listBookings(dctx, {}))[0].status, 'cancelled');
 
   await new Promise((r) => setImmediate(r));
   assert.ok(sent.some((s) => s.method === 'sendMessage' && /клиент/.test(s.payload.text) && /Запись отменена/.test(s.payload.text)));
@@ -203,22 +203,22 @@ test('a client cannot cancel someone else\'s booking', async () => {
   const other = { id: 777, is_bot: false, first_name: 'Чужой' };
   await tap('cx:1', other);
   assert.match(lastText(), /не найдена/);
-  assert.equal(listBookings(dctx, {})[0].status, 'confirmed');
+  assert.equal((await listBookings(dctx, {}))[0].status, 'confirmed');
 });
 
 test('late cancellation is refused with the studio phone', async () => {
   await walkToConfirm();
   await tap('ok');
-  const { date, startMin } = listBookings(dctx, {})[0];
+  const { date, startMin } = (await listBookings(dctx, {}))[0];
   dctx.clock.current = new Date(`${date}T00:00:00Z`.replace('T00:00', `T${String(Math.floor(startMin / 60) - 1).padStart(2, '0')}:00`));
   await tap('cxy:1');
   assert.match(lastText(), /не позднее чем за 3 ч/);
-  assert.equal(listBookings(dctx, {})[0].status, 'confirmed');
+  assert.equal((await listBookings(dctx, {}))[0].status, 'confirmed');
 });
 
 test('a website booking is linked through the /start deep link and then appears in "my bookings"', async () => {
   const { createBooking } = await import('../src/domain/bookings.js');
-  const web = createBooking(dctx, { serviceId: 1, masterId: null, date: '2026-11-04', startMin: 600, name: 'Анна', phone: '+79001112233', source: 'web' });
+  const web = await createBooking(dctx, { serviceId: 1, masterId: null, date: '2026-11-04', startMin: 600, name: 'Анна', phone: '+79001112233', source: 'web' });
   await sendText(`/start b_${web.linkToken}`);
   assert.match(lastText(), /привязана к Telegram/);
   await tap('my');
@@ -230,7 +230,7 @@ test('a website booking is linked through the /start deep link and then appears 
 test('reminders are delivered once to linked clients', async () => {
   await walkToConfirm();
   await tap('ok');
-  const { date, startMin } = listBookings(dctx, {})[0];
+  const { date, startMin } = (await listBookings(dctx, {}))[0];
   const [y, m, d] = date.split('-').map(Number);
   dctx.clock.current = new Date(Date.UTC(y, m - 1, d, Math.floor(startMin / 60) - 1, 0)); // за час
   sent.length = 0;
@@ -243,7 +243,7 @@ test('reminders are delivered once to linked clients', async () => {
 test('admin cancellation of a Telegram booking notifies the client', async () => {
   await walkToConfirm();
   await tap('ok');
-  const booking = listBookings(dctx, {})[0];
+  const booking = (await listBookings(dctx, {}))[0];
   sent.length = 0;
   events.emit('booking:status', { booking: { ...booking, status: 'cancelled' }, previous: 'confirmed', by: 'admin' });
   await new Promise((r) => setImmediate(r));

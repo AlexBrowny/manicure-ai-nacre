@@ -1,6 +1,5 @@
 // Записи клиентов: создание (атомарно, без двойного бронирования), статусы, отмена, напоминания.
 import { randomBytes } from 'node:crypto';
-import { tx } from '../db.js';
 import { badRequest, conflict, notFound, slotUnavailable } from '../errors.js';
 import { localAbsMinutes, nowInTz } from '../time.js';
 import { daySlots, loadBusy } from './availability.js';
@@ -33,16 +32,16 @@ function toBooking(r) {
     clientPhone: r.client_phone,
     source: r.source,
     status: r.status,
-    tgChatId: r.tg_chat_id,
+    tgChatId: r.tg_chat_id == null ? null : Number(r.tg_chat_id),
     notes: r.notes,
     remindersSent: [...parseSent(r.reminders_sent)],
-    lastRemindedAt: r.last_reminded_at ?? null,
-    createdAt: r.created_at,
+    lastRemindedAt: r.last_reminded_at ? new Date(r.last_reminded_at).toISOString() : null,
+    createdAt: new Date(r.created_at).toISOString(),
   };
 }
 
-export function getBooking({ db }, id) {
-  const row = db.prepare(`${SELECT_BOOKING} WHERE b.id = ?`).get(id);
+export async function getBooking({ db }, id) {
+  const row = await db.get(`${SELECT_BOOKING} WHERE b.id = ?`, [id]);
   if (!row) throw notFound('Запись');
   return toBooking(row);
 }
@@ -59,18 +58,19 @@ function skippedReminders(ctx, date, startMin) {
 }
 
 /** Мастер с наименьшей загрузкой в этот день среди свободных. */
-function pickMaster(ctx, masterIds, date) {
+async function pickMaster(ctx, masterIds, date) {
   if (masterIds.length === 1) return masterIds[0];
-  const busy = loadBusy(ctx.db, masterIds, date, date);
+  const busy = await loadBusy(ctx.db, masterIds, date, date);
   const load = (id) => (busy.get(`${id}|${date}`) ?? []).reduce((sum, b) => sum + (b.end - b.start), 0);
   return masterIds.reduce((best, id) => (load(id) < load(best) ? id : best));
 }
 
-function assertPhoneNotOverbooked(ctx, phone) {
+async function assertPhoneNotOverbooked(ctx, phone) {
   const today = nowInTz(ctx.cfg.timeZone, ctx.now()).date;
-  const { n } = ctx.db
-    .prepare("SELECT COUNT(*) AS n FROM bookings WHERE client_phone = ? AND status = 'confirmed' AND date >= ?")
-    .get(phone, today);
+  const { n } = await ctx.db.get(
+    "SELECT COUNT(*)::int AS n FROM bookings WHERE client_phone = ? AND status = 'confirmed' AND date >= ?",
+    [phone, today],
+  );
   if (n >= MAX_ACTIVE_PER_PHONE) {
     throw conflict('С этого номера уже оформлено максимум записей. Позвоните нам, чтобы изменить их.', 'too_many_bookings');
   }
@@ -78,71 +78,72 @@ function assertPhoneNotOverbooked(ctx, phone) {
 
 /**
  * Создаёт запись. masterId = null — подобрать мастера автоматически.
- * @returns {object} запись + одноразовый linkToken для привязки к Telegram
+ * @returns {Promise<object>} запись + одноразовый linkToken для привязки к Telegram
  */
-export function createBooking(ctx, input) {
+export async function createBooking(ctx, input) {
   const name = cleanName(input.name);
   const phone = normalizePhone(input.phone);
-  const source = input.source;
+  const { source } = input;
 
-  return tx(ctx.db, () => {
-    const service = getService(ctx, input.serviceId);
+  return ctx.db.tx(async (db) => {
+    const t = { ...ctx, db };
+    // Записи на одну дату создаются строго по очереди — так два клиента не займут один слот.
+    await db.get('SELECT pg_advisory_xact_lock(hashtext(?))', [`booking:${input.date}`]);
+    const service = await getService(t, input.serviceId);
     if (!service.active) throw notFound('Услуга');
-    if (source !== 'admin') assertPhoneNotOverbooked(ctx, phone);
+    if (source !== 'admin') await assertPhoneNotOverbooked(t, phone);
 
-    const slot = daySlots(ctx, {
+    const slots = await daySlots(t, {
       serviceId: service.id, masterId: input.masterId ?? null, date: input.date, ignoreLead: Boolean(input.ignoreLead),
-    }).find((s) => s.start === input.startMin);
+    });
+    const slot = slots.find((s) => s.start === input.startMin);
     if (!slot) throw slotUnavailable();
 
-    const masterId = pickMaster(ctx, slot.masterIds, input.date);
+    const masterId = await pickMaster(t, slot.masterIds, input.date);
     const tgChatId = input.tgChatId ?? null;
     const sent = tgChatId == null ? '' : skippedReminders(ctx, input.date, input.startMin);
     const linkToken = randomBytes(12).toString('hex');
-    const { lastInsertRowid } = ctx.db
-      .prepare(
-        `INSERT INTO bookings (master_id, service_id, service_name, price, date, start_min, end_min,
-                               client_name, client_phone, source, tg_chat_id, link_token, notes,
-                               reminders_sent)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
+    const { id } = await db.get(
+      `INSERT INTO bookings (master_id, service_id, service_name, price, date, start_min, end_min,
+                             client_name, client_phone, source, tg_chat_id, link_token, notes, reminders_sent)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
+      [
         masterId, service.id, service.name, service.price, input.date, input.startMin,
         input.startMin + service.durationMin, name, phone, source, tgChatId, linkToken,
         String(input.notes ?? '').slice(0, 500), sent,
-      );
-    return { ...getBooking(ctx, Number(lastInsertRowid)), linkToken };
+      ],
+    );
+    return { ...(await getBooking(t, id)), linkToken };
   });
 }
 
-export function setStatus(ctx, id, status) {
-  if (!STATUSES.includes(status)) throw badRequest('Неизвестный статус');
-  const booking = getBooking(ctx, id);
-  if (booking.status === 'cancelled' && status !== 'cancelled') assertSlotStillFree(ctx, booking);
-  ctx.db.prepare('UPDATE bookings SET status = ? WHERE id = ?').run(status, id);
-  return getBooking(ctx, id);
-}
-
-function assertSlotStillFree({ db }, booking) {
-  const clash = db
-    .prepare(
-      `SELECT 1 FROM bookings
-       WHERE master_id = ? AND date = ? AND id != ? AND status != 'cancelled'
-         AND start_min < ? AND end_min > ?`,
-    )
-    .get(booking.masterId, booking.date, booking.id, booking.endMin, booking.startMin);
+async function assertSlotStillFree({ db }, booking) {
+  const clash = await db.get(
+    `SELECT 1 FROM bookings
+     WHERE master_id = ? AND date = ? AND id != ? AND status != 'cancelled'
+       AND start_min < ? AND end_min > ?`,
+    [booking.masterId, booking.date, booking.id, booking.endMin, booking.startMin],
+  );
   if (clash) throw slotUnavailable();
 }
 
-export function updateNotes({ db }, id, notes) {
-  getBooking({ db }, id);
-  db.prepare('UPDATE bookings SET notes = ? WHERE id = ?').run(String(notes).slice(0, 500), id);
+export async function setStatus(ctx, id, status) {
+  if (!STATUSES.includes(status)) throw badRequest('Неизвестный статус');
+  const booking = await getBooking(ctx, id);
+  if (booking.status === 'cancelled' && status !== 'cancelled') await assertSlotStillFree(ctx, booking);
+  await ctx.db.run('UPDATE bookings SET status = ? WHERE id = ?', [status, id]);
+  return getBooking(ctx, id);
+}
+
+export async function updateNotes({ db }, id, notes) {
+  await getBooking({ db }, id);
+  await db.run('UPDATE bookings SET notes = ? WHERE id = ?', [String(notes).slice(0, 500), id]);
   return getBooking({ db }, id);
 }
 
 /** by: 'admin' — без ограничений; 'client' — только свой чат и не позже cancelMinHours до визита. */
-export function cancelBooking(ctx, id, { by, tgChatId = null }) {
-  const booking = getBooking(ctx, id);
+export async function cancelBooking(ctx, id, { by, tgChatId = null }) {
+  const booking = await getBooking(ctx, id);
   if (by === 'client' && booking.tgChatId !== tgChatId) throw notFound('Запись');
   if (booking.status !== 'confirmed') throw conflict('Эту запись уже нельзя отменить.', 'not_cancellable');
   if (by === 'client' && minutesUntil(ctx, booking.date, booking.startMin) < ctx.cfg.cancelMinHours * 60) {
@@ -155,32 +156,34 @@ export function cancelBooking(ctx, id, { by, tgChatId = null }) {
 }
 
 /** Привязывает запись с сайта к Telegram-чату по одноразовому токену. */
-export function linkBookingToChat(ctx, token, chatId) {
+export async function linkBookingToChat(ctx, token, chatId) {
   if (!/^[0-9a-f]{24}$/.test(String(token))) return null;
-  const row = ctx.db
-    .prepare("SELECT id, date, start_min FROM bookings WHERE link_token = ? AND tg_chat_id IS NULL AND status = 'confirmed'")
-    .get(token);
+  const row = await ctx.db.get(
+    "SELECT id, date, start_min FROM bookings WHERE link_token = ? AND tg_chat_id IS NULL AND status = 'confirmed'",
+    [token],
+  );
   if (!row) return null;
-  ctx.db
-    .prepare('UPDATE bookings SET tg_chat_id = ?, reminders_sent = ? WHERE id = ?')
-    .run(chatId, skippedReminders(ctx, row.date, row.start_min), row.id);
+  await ctx.db.run(
+    'UPDATE bookings SET tg_chat_id = ?, reminders_sent = ? WHERE id = ?',
+    [chatId, skippedReminders(ctx, row.date, row.start_min), row.id],
+  );
   return getBooking(ctx, row.id);
 }
 
 /** Предстоящие подтверждённые записи чата. */
-export function listUpcomingForChat(ctx, chatId) {
-  const rows = ctx.db
-    .prepare(`${SELECT_BOOKING} WHERE b.tg_chat_id = ? AND b.status = 'confirmed' ORDER BY b.date, b.start_min`)
-    .all(chatId)
-    .map(toBooking);
-  return rows.filter((b) => minutesUntil(ctx, b.date, b.endMin) > 0);
+export async function listUpcomingForChat(ctx, chatId) {
+  const rows = await ctx.db.all(
+    `${SELECT_BOOKING} WHERE b.tg_chat_id = ? AND b.status = 'confirmed' ORDER BY b.date, b.start_min`,
+    [chatId],
+  );
+  return rows.map(toBooking).filter((b) => minutesUntil(ctx, b.date, b.endMin) > 0);
 }
 
 /**
  * Фильтры: from/to (даты), masterId, status, q (имя/телефон).
- * Поиск делается в JS: LIKE в SQLite не различает регистр кириллицы.
+ * Поиск по имени — в JS, без учёта регистра (в том числе для кириллицы).
  */
-export function listBookings({ db }, { from, to, masterId, status, q, limit = 1000 } = {}) {
+export async function listBookings({ db }, { from, to, masterId, status, q, limit = 1000 } = {}) {
   const where = [];
   const params = [];
   if (from) { where.push('b.date >= ?'); params.push(from); }
@@ -189,7 +192,7 @@ export function listBookings({ db }, { from, to, masterId, status, q, limit = 10
   if (status) { where.push('b.status = ?'); params.push(status); }
   const sql = `${SELECT_BOOKING} ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
                ORDER BY b.date, b.start_min, b.id LIMIT ?`;
-  let rows = db.prepare(sql).all(...params, limit).map(toBooking);
+  let rows = (await db.all(sql, [...params, limit])).map(toBooking);
 
   const needle = String(q ?? '').trim().toLowerCase();
   if (needle) {
@@ -204,11 +207,12 @@ export function listBookings({ db }, { from, to, masterId, status, q, limit = 10
 }
 
 /** Автоматические напоминания, которые пора отправить: [{ booking, offset }] (offset — минуты до визита). */
-export function dueReminders(ctx) {
+export async function dueReminders(ctx) {
   const offsets = reminderOffsets(ctx.cfg);
-  const rows = ctx.db
-    .prepare(`${SELECT_BOOKING} WHERE b.status = 'confirmed' AND b.tg_chat_id IS NOT NULL AND b.date >= ?`)
-    .all(nowInTz(ctx.cfg.timeZone, ctx.now()).date);
+  const rows = await ctx.db.all(
+    `${SELECT_BOOKING} WHERE b.status = 'confirmed' AND b.tg_chat_id IS NOT NULL AND b.date >= ?`,
+    [nowInTz(ctx.cfg.timeZone, ctx.now()).date],
+  );
   const due = [];
   for (const row of rows) {
     const offset = dueOffset(offsets, parseSent(row.reminders_sent), minutesUntil(ctx, row.date, row.start_min));
@@ -218,11 +222,11 @@ export function dueReminders(ctx) {
 }
 
 /** Отмечает напоминание отправленным (и все более ранние — ненужными). */
-export function markReminded(ctx, id, offset) {
-  const row = ctx.db.prepare('SELECT reminders_sent FROM bookings WHERE id = ?').get(id);
+export async function markReminded(ctx, id, offset) {
+  const row = await ctx.db.get('SELECT reminders_sent FROM bookings WHERE id = ?', [id]);
   if (!row) throw notFound('Запись');
   const sent = markSent(reminderOffsets(ctx.cfg), parseSent(row.reminders_sent), offset);
-  ctx.db.prepare('UPDATE bookings SET reminders_sent = ? WHERE id = ?').run(serializeSent(sent), id);
+  await ctx.db.run('UPDATE bookings SET reminders_sent = ? WHERE id = ?', [serializeSent(sent), id]);
 }
 
 const MANUAL_REMINDER_COOLDOWN_SEC = 60;
@@ -235,12 +239,11 @@ export function assertCanRemind(ctx, booking) {
   }
   if (minutesUntil(ctx, booking.date, booking.startMin) <= 0) throw conflict('Визит уже начался.', 'not_remindable');
   if (booking.lastRemindedAt) {
-    const sentAgoSec = (ctx.now().getTime() - Date.parse(`${booking.lastRemindedAt.replace(' ', 'T')}Z`)) / 1000;
+    const sentAgoSec = (ctx.now().getTime() - Date.parse(booking.lastRemindedAt)) / 1000;
     if (sentAgoSec < MANUAL_REMINDER_COOLDOWN_SEC) throw conflict('Напоминание только что отправлено. Подождите минуту.', 'too_soon');
   }
 }
 
-export function markManualReminder(ctx, id) {
-  ctx.db.prepare('UPDATE bookings SET last_reminded_at = ? WHERE id = ?')
-    .run(ctx.now().toISOString().slice(0, 19).replace('T', ' '), id);
+export async function markManualReminder(ctx, id) {
+  await ctx.db.run('UPDATE bookings SET last_reminded_at = ? WHERE id = ?', [ctx.now().toISOString(), id]);
 }

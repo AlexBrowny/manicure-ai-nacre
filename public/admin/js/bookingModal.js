@@ -9,8 +9,8 @@ import {
 const dateTime = (b) => `${dateLong(b.date)}, ${b.start}–${b.end}`;
 
 /** «2026-11-03 09:15:00» (UTC из базы) → «12:15» в часовом поясе студии. */
-const clockTime = (utc, timeZone) => new Intl.DateTimeFormat('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone })
-  .format(new Date(`${utc.replace(' ', 'T')}Z`));
+const clockTime = (iso, timeZone) => new Intl.DateTimeFormat('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone })
+  .format(new Date(iso));
 
 function remindersText(b, timeZone) {
   if (!b.telegram) return 'не отправляются — Telegram не подключён';

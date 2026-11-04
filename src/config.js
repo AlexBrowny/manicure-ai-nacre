@@ -57,7 +57,9 @@ export function loadConfig(env = process.env) {
 
   return {
     port: int(env, 'PORT', 3000, { min: 1, max: 65535 }),
-    dbPath: env.DB_PATH || 'data/studio.db',
+    // Lakebase Postgres на Neon: пул для приложения и прямое подключение для миграций (`neon env pull`).
+    databaseUrl: env.DATABASE_URL || '',
+    databaseUrlDirect: env.DATABASE_URL_UNPOOLED || env.DATABASE_URL || '',
     timeZone: env.STUDIO_TZ || 'Asia/Tashkent',
     currency: env.CURRENCY || 'сум',
     slotStepMin: int(env, 'SLOT_STEP_MIN', 30, { min: 5, max: 120 }),

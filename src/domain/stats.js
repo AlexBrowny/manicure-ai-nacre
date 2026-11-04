@@ -101,11 +101,11 @@ function totalsOf(bookings, occupying, masterRows) {
   };
 }
 
-export function dashboardStats(ctx, { from, to }) {
+export async function dashboardStats(ctx, { from, to }) {
   const dates = eachDate(from, to);
-  const bookings = listBookings(ctx, { from, to });
+  const bookings = await listBookings(ctx, { from, to });
   const occupying = bookings.filter((b) => b.status !== 'cancelled');
-  const masters = listMasters(ctx).filter((m) => m.active || occupying.some((b) => b.masterId === m.id));
+  const masters = (await listMasters(ctx)).filter((m) => m.active || occupying.some((b) => b.masterId === m.id));
   const capacity = capacityOf(masters, dates);
   const masterRows = masterRowsOf(masters, occupying, dates, capacity.byMasterDay);
   const sourceCount = countBy(occupying, (b) => b.source);

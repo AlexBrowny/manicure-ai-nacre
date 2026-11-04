@@ -14,25 +14,25 @@ export function miniappRoutes({ ctx, events }) {
   const { cfg, db } = ctx;
 
   router.use(rateLimit({ windowMs: 60 * 1000, max: 120 }));
-  router.use((req, res, next) => {
+  router.use(async (req, res, next) => {
     req.tgUser = verifyInitData(req.get('x-telegram-init-data'), cfg.telegram.token, { now: ctx.now().getTime() });
     next();
   });
 
   /** Что уже известно о клиенте: имя из Telegram и телефон из прошлых записей. */
-  router.get('/me', (req, res) => {
-    const profile = getProfile(db, req.tgUser.id);
+  router.get('/me', async (req, res) => {
+    const profile = await getProfile(db, req.tgUser.id);
     const telegramName = [req.tgUser.first_name, req.tgUser.last_name].filter(Boolean).join(' ');
     res.json(ok({ name: profile.name || telegramName, phone: profile.phone || '' }));
   });
 
-  router.post('/bookings', rateLimit({ windowMs: 60 * 60 * 1000, max: 15 }), (req, res) => {
+  router.post('/bookings', rateLimit({ windowMs: 60 * 60 * 1000, max: 15 }), async (req, res) => {
     const body = bookingBody.parse(req.body);
-    const booking = createBooking(ctx, {
+    const booking = await createBooking(ctx, {
       serviceId: body.serviceId, masterId: body.masterId ?? null, date: body.date, startMin: body.time,
       name: body.name, phone: body.phone, notes: body.notes, source: 'telegram', tgChatId: req.tgUser.id,
     });
-    saveProfile(db, req.tgUser.id, { name: booking.clientName, phone: booking.clientPhone });
+    await saveProfile(db, req.tgUser.id, { name: booking.clientName, phone: booking.clientPhone });
     events.emit('booking:created', booking);
     res.status(201).json(ok({ booking: publicBookingDto(booking), reminders: describeOffsets(reminderOffsets(cfg)) }));
   });

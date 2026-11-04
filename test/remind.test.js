@@ -16,17 +16,17 @@ const runtime = {};
 const sent = [];
 
 before(async () => {
-  ctx = makeCtx({ now: '2026-11-03T05:00:00Z' });
+  ctx = await makeCtx({ now: '2026-11-03T05:00:00Z' });
   ctx.cfg.admin = { password: 'pw', sessionSecret: 'secret', sessionHours: 1, cookieSecure: false };
   ctx.cfg.telegram = { token: '', botUsername: '', adminChatIds: [] };
   ctx.cfg.studio = { name: 'Nacré', phone: '+998 90 000-00-00', address: 'ул. Тестовая, 1' };
-  seedDefaults(ctx);
+  await seedDefaults(ctx);
   runtime.sendReminder = async (booking) => { sent.push(booking.id); };
   await new Promise((resolve) => { server = createApp({ ctx, runtime, logger: quiet }).listen(0, '127.0.0.1', resolve); });
   base = `http://127.0.0.1:${server.address().port}`;
 });
 
-after(() => server.close());
+after(async () => server.close());
 
 async function login() {
   const res = await fetch(`${base}/api/admin/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: 'pw' }) });
@@ -44,7 +44,7 @@ const book = (extra) => createBooking(ctx, {
 
 test('admin can send a reminder to a Telegram-linked client and the time is recorded', async () => {
   const cookie = await login();
-  const booking = book({ source: 'telegram', tgChatId: 77 });
+  const booking = await book({ source: 'telegram', tgChatId: 77 });
   const res = await remind(booking.id, cookie);
   assert.equal(res.status, 200);
   assert.deepEqual(sent, [booking.id]);
@@ -56,14 +56,14 @@ test('admin can send a reminder to a Telegram-linked client and the time is reco
 
 test('reminding a client without Telegram explains why it is impossible', async () => {
   const cookie = await login();
-  const booking = book({ startMin: 900, phone: '+998902223344' });
+  const booking = await book({ startMin: 900, phone: '+998902223344' });
   const res = await remind(booking.id, cookie);
   assert.equal(res.status, 409);
   assert.equal(res.json.code, 'no_telegram');
 });
 
 test('the remind endpoint requires an admin session and reports a stopped bot', async () => {
-  const booking = book({ startMin: 960, phone: '+998903334455', source: 'telegram', tgChatId: 78 });
+  const booking = await book({ startMin: 960, phone: '+998903334455', source: 'telegram', tgChatId: 78 });
   assert.equal((await remind(booking.id, 'nacre_admin=nope')).status, 401);
   const saved = runtime.sendReminder;
   delete runtime.sendReminder;
@@ -74,10 +74,10 @@ test('the remind endpoint requires an admin session and reports a stopped bot', 
 });
 
 test('the bot sends a manual reminder and surfaces Telegram failures', async () => {
-  const dctx = makeCtx({ now: '2026-11-03T05:00:00Z' });
+  const dctx = await makeCtx({ now: '2026-11-03T05:00:00Z' });
   dctx.cfg.telegram = { token: 'T:T', botUsername: 'b', adminChatIds: [] };
   dctx.cfg.studio = { name: 'Nacré', phone: '+998 90 000-00-00', address: 'ул. 1' };
-  seedDefaults(dctx);
+  await seedDefaults(dctx);
   const botRuntime = {};
   const app = createBot({
     ctx: dctx, events: new EventEmitter(), token: 'T:T', logger: quiet, runtime: botRuntime,
@@ -90,7 +90,7 @@ test('the bot sends a manual reminder and surfaces Telegram failures', async () 
     if (fail) return Promise.resolve({ ok: false, error_code: 403, description: 'Forbidden: bot was blocked by the user' });
     return Promise.resolve({ ok: true, result: { message_id: 1, date: 0, chat: { id: payload.chat_id, type: 'private' } } });
   });
-  const booking = createBooking(dctx, {
+  const booking = await createBooking(dctx, {
     serviceId: 1, masterId: null, date: '2026-11-03', startMin: 720, name: 'Анна', phone: '+998901112233', source: 'telegram', tgChatId: 55,
   });
   assert.equal(typeof botRuntime.sendReminder, 'function', 'бот отдаёт функцию для админки');
@@ -101,7 +101,7 @@ test('the bot sends a manual reminder and surfaces Telegram failures', async () 
   await assert.rejects(botRuntime.sendReminder(booking), { code: 'send_failed' });
 });
 
-test('REMINDER_MINUTES config is parsed and validated', () => {
+test('REMINDER_MINUTES config is parsed and validated', async () => {
   assert.deepEqual(loadConfig({}).reminderMinutes, [120, 10]);
   assert.deepEqual(loadConfig({ REMINDER_MINUTES: '1440, 120, 10' }).reminderMinutes, [1440, 120, 10]);
   assert.throws(() => loadConfig({ REMINDER_MINUTES: '120,abc' }), /REMINDER_MINUTES/);

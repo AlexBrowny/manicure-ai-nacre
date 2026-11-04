@@ -13,14 +13,14 @@ export function createInfoFlow({ dctx }) {
   const currency = cfg.currency;
 
   async function menu(ctx) {
-    clearDraft(db, ctx.chat.id);
+    await clearDraft(db, ctx.chat.id);
     await show(ctx, `Здравствуйте! Это <b>${esc(cfg.studio.name)}</b> — ${esc(cfg.studio.tagline)}.\nЧем могу помочь?`, mainMenu(cfg.telegram.webAppUrl));
   }
 
   async function start(ctx) {
     const payload = String(ctx.match ?? '');
     if (payload.startsWith('b_')) {
-      const booking = linkBookingToChat(dctx, payload.slice(2), ctx.chat.id);
+      const booking = await linkBookingToChat(dctx, payload.slice(2), ctx.chat.id);
       if (booking) {
         return ctx.reply(
           `✅ Запись привязана к Telegram. Напомним о визите ${describeOffsets(reminderOffsets(cfg))}.\n\n${bookingCard(booking, currency)}`,
@@ -32,7 +32,7 @@ export function createInfoFlow({ dctx }) {
   }
 
   async function prices(ctx) {
-    const byCategory = Map.groupBy(listServices(dctx, { activeOnly: true }), (s) => s.category);
+    const byCategory = Map.groupBy(await listServices(dctx, { activeOnly: true }), (s) => s.category);
     const blocks = [...byCategory].map(([category, items]) =>
       [`<b>${esc(category)}</b>`, ...items.map((s) => `• ${esc(s.name)} — ${money(s.price, currency)} · ${durationText(s.durationMin)}`)].join('\n'));
     return show(ctx, `💰 <b>Услуги и цены</b>\n\n${blocks.join('\n\n')}`, new InlineKeyboard().text('💅 Записаться', 'book').text('‹ В меню', 'menu'));

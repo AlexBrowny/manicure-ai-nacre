@@ -13,26 +13,26 @@ export function createMyBookingsFlow({ dctx, events }) {
   const currency = cfg.currency;
 
   async function myBookings(ctx) {
-    const list = listUpcomingForChat(dctx, ctx.chat.id);
+    const list = await listUpcomingForChat(dctx, ctx.chat.id);
     if (list.length === 0) return show(ctx, 'У вас нет предстоящих записей.', bookAgain());
     const body = list.map((b) => bookingCard(b, currency)).join('\n\n');
     return show(ctx, `<b>Ваши записи</b>\n\n${body}`, myBookingsKeyboard(list));
   }
 
-  function ownBooking(ctx, id) {
-    const booking = getBooking(dctx, id);
+  async function ownBooking(ctx, id) {
+    const booking = await getBooking(dctx, id);
     if (booking.tgChatId !== ctx.chat.id) throw new AppError(404, 'not_found', 'Запись не найдена');
     return booking;
   }
 
   async function askCancel(ctx, id) {
-    const booking = ownBooking(ctx, id);
+    const booking = await ownBooking(ctx, id);
     return show(ctx, `Отменить запись?\n\n${bookingCard(booking, currency)}`, confirmCancelKeyboard(id));
   }
 
   async function doCancel(ctx, id) {
     try {
-      const booking = cancelBooking(dctx, id, { by: 'client', tgChatId: ctx.chat.id });
+      const booking = await cancelBooking(dctx, id, { by: 'client', tgChatId: ctx.chat.id });
       events.emit('booking:status', { booking, previous: 'confirmed', by: 'client' });
       return show(ctx, 'Запись отменена. Будем рады видеть вас снова!', bookAgain());
     } catch (err) {

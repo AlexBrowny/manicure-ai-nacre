@@ -20,7 +20,7 @@ export async function show(ctx, text, keyboard) {
 
 export function draftHelpers(db) {
   const draftOf = (ctx) => getDraft(db, ctx.chat.id);
-  const patchDraft = (ctx, patch) => saveDraft(db, ctx.chat.id, { ...(draftOf(ctx) ?? {}), ...patch });
+  const patchDraft = async (ctx, patch) => saveDraft(db, ctx.chat.id, { ...((await draftOf(ctx)) ?? {}), ...patch });
   return { draftOf, patchDraft };
 }
 

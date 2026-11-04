@@ -43,13 +43,15 @@ const MASTERS = [
 ];
 
 /** Заполняет пустую базу примерами. Ничего не делает, если данные уже есть. */
-export function seedDefaults(ctx) {
-  if (listServices(ctx).length > 0 || listMasters(ctx).length > 0) return false;
-  const created = SERVICES.map(([category, name, description, durationMin, price]) =>
-    createService(ctx, { name, category, description, durationMin, price, active: true }));
+export async function seedDefaults(ctx) {
+  if ((await listServices(ctx)).length > 0 || (await listMasters(ctx)).length > 0) return false;
+  const created = [];
+  for (const [category, name, description, durationMin, price] of SERVICES) {
+    created.push(await createService(ctx, { name, category, description, durationMin, price, active: true }));
+  }
   for (const m of MASTERS) {
     const serviceIds = created.filter((s) => m.serviceNames.includes(s.category)).map((s) => s.id);
-    createMaster(ctx, {
+    await createMaster(ctx, {
       name: m.name, title: m.title, bio: m.bio, color: m.color, photoUrl: '', active: true,
       serviceIds, schedule: m.schedule, daysOff: [],
     });
@@ -73,16 +75,16 @@ function mulberry32(seed) {
   };
 }
 
-export function clearDemo({ db }) {
-  return db.prepare('DELETE FROM bookings WHERE notes = ?').run(DEMO_NOTE).changes;
+export async function clearDemo({ db }) {
+  return (await db.all('DELETE FROM bookings WHERE notes = ? RETURNING id', [DEMO_NOTE])).length;
 }
 
 /** Создаёт реалистичную загрузку: две недели назад и неделя вперёд. Возвращает число записей. */
-export function seedDemo(ctx, { daysBack = 14, daysForward = 7, seed = 7 } = {}) {
+export async function seedDemo(ctx, { daysBack = 14, daysForward = 7, seed = 7 } = {}) {
   const rand = mulberry32(seed);
   const pick = (list) => list[Math.floor(rand() * list.length)];
   const today = nowInTz(ctx.cfg.timeZone, ctx.now()).date;
-  const masters = listMasters(ctx, { activeOnly: true });
+  const masters = await listMasters(ctx, { activeOnly: true });
   let created = 0;
 
   for (let offset = -daysBack; offset <= daysForward; offset += 1) {
@@ -92,11 +94,11 @@ export function seedDemo(ctx, { daysBack = 14, daysForward = 7, seed = 7 } = {})
       for (let i = 0; i < attempts; i += 1) {
         const serviceId = pick(master.serviceIds);
         if (serviceId == null) continue;
-        const slots = daySlots(ctx, { serviceId, masterId: master.id, date, ignoreLead: true });
+        const slots = await daySlots(ctx, { serviceId, masterId: master.id, date, ignoreLead: true });
         if (slots.length === 0) continue;
         const phone = `+99890${String(1000000 + Math.floor(rand() * 40) * 1117).slice(0, 7)}`;
         try {
-          const booking = createBooking(ctx, {
+          const booking = await createBooking(ctx, {
             serviceId, masterId: master.id, date, startMin: pick(slots).start,
             name: `${pick(FIRST)} ${pick(LAST)}`, phone, notes: DEMO_NOTE,
             source: pick(['web', 'web', 'telegram', 'telegram', 'admin']), ignoreLead: true,
@@ -104,9 +106,8 @@ export function seedDemo(ctx, { daysBack = 14, daysForward = 7, seed = 7 } = {})
           created += 1;
           if (offset < 0) {
             const roll = rand();
-            if (roll > 0.93) setStatus(ctx, booking.id, 'cancelled');
-            else if (roll > 0.86) setStatus(ctx, booking.id, 'no_show');
-            else setStatus(ctx, booking.id, 'completed');
+            const status = roll > 0.93 ? 'cancelled' : roll > 0.86 ? 'no_show' : 'completed';
+            await setStatus(ctx, booking.id, status);
           }
         } catch (err) {
           if (err.code !== 'slot_unavailable' && err.code !== 'too_many_bookings') throw err;

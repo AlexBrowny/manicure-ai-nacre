@@ -10,9 +10,10 @@ const cfg = loadConfig();
 for (const warning of cfg.warnings) logger.warn(warning);
 if (cfg.admin.generatedPassword) logger.warn(`Временный пароль админ-панели: ${cfg.admin.password}`);
 
-const db = openDb(cfg.dbPath);
+const db = await openDb({ url: cfg.databaseUrl, migrationUrl: cfg.databaseUrlDirect });
+logger.info('База данных: Lakebase Postgres (Neon) подключена.');
 const ctx = { db, cfg, now: () => new Date() };
-if (seedDefaults(ctx)) logger.info('База пуста — добавлены примерные услуги и мастера (их можно изменить в админ-панели).');
+if (await seedDefaults(ctx)) logger.info('База пуста — добавлены примерные услуги и мастера (их можно изменить в админ-панели).');
 
 const events = new EventEmitter();
 const runtime = {};
@@ -36,8 +37,7 @@ function shutdown(signal) {
   logger.info(`${signal}: останавливаюсь…`);
   Promise.resolve(telegram?.stop()).finally(() => {
     server.close(() => {
-      db.close();
-      process.exit(0);
+      db.close().finally(() => process.exit(0));
     });
   });
   setTimeout(() => process.exit(1), 5000).unref();

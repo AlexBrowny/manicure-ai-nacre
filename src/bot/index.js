@@ -61,8 +61,8 @@ function registerHandlers(bot, flow, { dctx, logger }) {
   bot.callbackQuery('info', flow.info);
   bot.callbackQuery('noop', () => {});
   bot.callbackQuery('b:mst', (c) => flow.chooseMaster(c));
-  bot.callbackQuery('b:slots', (c) => {
-    const date = getDraft(dctx.db, c.chat.id)?.date;
+  bot.callbackQuery('b:slots', async (c) => {
+    const date = (await getDraft(dctx.db, c.chat.id))?.date;
     return date ? flow.chooseTime(c, date) : flow.chooseService(c);
   });
   bot.callbackQuery(/^s:(\d+)$/, (c) => flow.chooseMaster(c, Number(c.match[1])));
