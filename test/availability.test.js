@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { daySlots, monthAvailability, nextFreeSlot } from '../src/domain/availability.js';
+import { daySlots, monthAvailability, nextFreeSlot, nextFreeSlots } from '../src/domain/availability.js';
 import { addMaster, addService, makeCtx, weekdays } from './helpers.js';
 
 const starts = (slots) => slots.map((s) => s.start);
@@ -131,4 +131,17 @@ test('nextFreeSlot returns null when the master never works', () => {
   const service = addService(ctx);
   const master = addMaster(ctx, { serviceIds: [service.id], schedule: [] });
   assert.equal(nextFreeSlot(ctx, { serviceId: service.id, masterId: master.id }), null);
+});
+
+test('nextFreeSlots returns the earliest slot of every eligible master in one call', () => {
+  const ctx = makeCtx({ now: '2026-11-02T07:00:00Z' }); // Пн
+  const service = addService(ctx);
+  const monday = addMaster(ctx, { name: 'Пн', serviceIds: [service.id], schedule: weekdays([0], 600, 900) });
+  const friday = addMaster(ctx, { name: 'Пт', serviceIds: [service.id], schedule: weekdays([4], 720, 900) });
+  const never = addMaster(ctx, { name: 'Нет', serviceIds: [service.id], schedule: [] });
+  const next = nextFreeSlots(ctx, { serviceId: service.id });
+  assert.deepEqual(next.get(monday.id), { date: '2026-11-02', start: 600 });
+  assert.deepEqual(next.get(friday.id), { date: '2026-11-06', start: 720 });
+  assert.equal(next.get(never.id), null);
+  assert.deepEqual(nextFreeSlot(ctx, { serviceId: service.id }), { date: '2026-11-02', start: 600 });
 });

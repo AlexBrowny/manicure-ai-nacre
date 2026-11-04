@@ -1,6 +1,6 @@
 // Публичное API сайта: каталог, свободное время, создание записи.
 import express from 'express';
-import { daySlots, monthAvailability, nextFreeSlot } from '../domain/availability.js';
+import { daySlots, monthAvailability, nextFreeSlots } from '../domain/availability.js';
 import { createBooking } from '../domain/bookings.js';
 import { listMasters, listServices } from '../domain/catalog.js';
 import { minToHHMM, nowInTz } from '../time.js';
@@ -40,7 +40,8 @@ export function publicRoutes({ ctx, events, runtime }) {
   router.get('/masters', (req, res) => {
     const { serviceId } = mastersQuery.parse(req.query);
     const masters = listMasters(ctx, { activeOnly: true, serviceId: serviceId ?? null });
-    res.json(ok(masters.map((m) => publicMasterDto(m, serviceId ? nextFreeSlot(ctx, { serviceId, masterId: m.id }) : undefined))));
+    const next = serviceId ? nextFreeSlots(ctx, { serviceId }) : null;
+    res.json(ok(masters.map((m) => publicMasterDto(m, next ? next.get(m.id) ?? null : undefined))));
   });
 
   router.get('/availability', (req, res) => {

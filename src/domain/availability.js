@@ -60,47 +60,64 @@ function slotsOnDay({ masters, busy, date, duration, cfg, now, ignoreLead }) {
   return byStart;
 }
 
+/** Общие входные данные расчёта: услуга, подходящие мастера, «сейчас» в зоне студии. */
+function plan(ctx, serviceId, masterId) {
+  const service = getService(ctx, serviceId);
+  const masters = eligibleMasters(ctx, serviceId, masterId);
+  const now = nowInTz(ctx.cfg.timeZone, ctx.now());
+  return { service, masters, now, cfg: ctx.cfg, duration: service.durationMin };
+}
+
+const slotsFor = (p, busy, date, ignoreLead = false) =>
+  slotsOnDay({ masters: p.masters, busy, date, duration: p.duration, cfg: p.cfg, now: p.now, ignoreLead });
+
 /**
  * Слоты на дату. masterId = null — «любой мастер».
  * @returns {{ start: number, masterIds: number[] }[]}
  */
 export function daySlots(ctx, { serviceId, masterId = null, date, ignoreLead = false }) {
-  const service = getService(ctx, serviceId);
-  const masters = eligibleMasters(ctx, serviceId, masterId);
-  const busy = loadBusy(ctx.db, masters.map((m) => m.id), date, date);
-  const now = nowInTz(ctx.cfg.timeZone, ctx.now());
-  const byStart = slotsOnDay({
-    masters, busy, date, duration: service.durationMin, cfg: ctx.cfg, now, ignoreLead,
-  });
-  return [...byStart.entries()].sort((a, b) => a[0] - b[0]).map(([start, masterIds]) => ({ start, masterIds }));
+  const p = plan(ctx, serviceId, masterId);
+  const busy = loadBusy(ctx.db, p.masters.map((m) => m.id), date, date);
+  return [...slotsFor(p, busy, date, ignoreLead).entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([start, masterIds]) => ({ start, masterIds }));
 }
 
 /** Количество свободных слотов по каждому дню месяца. */
 export function monthAvailability(ctx, { serviceId, masterId = null, month }) {
-  const service = getService(ctx, serviceId);
-  const masters = eligibleMasters(ctx, serviceId, masterId);
+  const p = plan(ctx, serviceId, masterId);
   const { from, to } = monthBounds(month);
-  const busy = loadBusy(ctx.db, masters.map((m) => m.id), from, to);
-  const now = nowInTz(ctx.cfg.timeZone, ctx.now());
-  return eachDate(from, to).map((date) => ({
-    date,
-    count: slotsOnDay({ masters, busy, date, duration: service.durationMin, cfg: ctx.cfg, now, ignoreLead: false }).size,
-  }));
+  const busy = loadBusy(ctx.db, p.masters.map((m) => m.id), from, to);
+  return eachDate(from, to).map((date) => ({ date, count: slotsFor(p, busy, date).size }));
 }
 
-/** Ближайший свободный слот в пределах горизонта записи. */
-export function nextFreeSlot(ctx, { serviceId, masterId = null }) {
-  const service = getService(ctx, serviceId);
-  const masters = eligibleMasters(ctx, serviceId, masterId);
-  if (masters.length === 0) return null;
-  const now = nowInTz(ctx.cfg.timeZone, ctx.now());
-  const last = addDays(now.date, ctx.cfg.horizonDays);
-  const busy = loadBusy(ctx.db, masters.map((m) => m.id), now.date, last);
-  for (const date of eachDate(now.date, last)) {
-    const byStart = slotsOnDay({
-      masters, busy, date, duration: service.durationMin, cfg: ctx.cfg, now, ignoreLead: false,
-    });
-    if (byStart.size > 0) return { date, start: Math.min(...byStart.keys()) };
+/**
+ * Ближайший свободный слот каждого подходящего мастера в пределах горизонта записи.
+ * Мастера и записи читаются из базы один раз на всех.
+ * @returns {Map<number, { date: string, start: number } | null>}
+ */
+export function nextFreeSlots(ctx, { serviceId, masterId = null }) {
+  const p = plan(ctx, serviceId, masterId);
+  const result = new Map(p.masters.map((m) => [m.id, null]));
+  if (p.masters.length === 0) return result;
+  const last = addDays(p.now.date, p.cfg.horizonDays);
+  const busy = loadBusy(ctx.db, p.masters.map((m) => m.id), p.now.date, last);
+  for (const master of p.masters) {
+    const single = { ...p, masters: [master] };
+    for (const date of eachDate(p.now.date, last)) {
+      const byStart = slotsFor(single, busy, date);
+      if (byStart.size > 0) {
+        result.set(master.id, { date, start: Math.min(...byStart.keys()) });
+        break;
+      }
+    }
   }
-  return null;
+  return result;
+}
+
+/** Ближайший свободный слот (у конкретного мастера или у любого). */
+export function nextFreeSlot(ctx, { serviceId, masterId = null }) {
+  const slots = [...nextFreeSlots(ctx, { serviceId, masterId }).values()].filter(Boolean);
+  if (slots.length === 0) return null;
+  return slots.reduce((best, s) => (s.date < best.date || (s.date === best.date && s.start < best.start) ? s : best));
 }
