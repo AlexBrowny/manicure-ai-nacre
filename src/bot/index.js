@@ -1,14 +1,11 @@
-// Telegram-бот: сборка grammY, уведомления администраторов, напоминания клиентам.
+// Telegram-бот: сборка grammY и маршрутизация команд/кнопок. Уведомления и напоминания — в соседних модулях.
 import { Bot } from 'grammy';
-import { dueReminders, markReminded } from '../domain/bookings.js';
 import { AppError } from '../errors.js';
 import { logger as defaultLogger } from '../logger.js';
 import { createFlow } from './flow.js';
+import { HTML, setupNotifications } from './notifications.js';
+import { createReminders } from './reminders.js';
 import { getDraft } from './store.js';
-import { adminCancelText, adminNewBookingText, reminderText } from './texts.js';
-
-const HTML = { parse_mode: 'HTML', link_preview_options: { is_disabled: true } };
-const REMINDER_INTERVAL_MS = 60_000;
 
 const COMMANDS = [
   { command: 'start', description: 'Главное меню' },
@@ -18,15 +15,8 @@ const COMMANDS = [
   { command: 'contacts', description: 'Контакты студии' },
 ];
 
-/**
- * @param {{ ctx: object, events: import('node:events').EventEmitter, token: string, botInfo?: object,
- *           logger?: object, runtime?: { botUsername?: string } }} deps
- */
-export function createBot({ ctx: dctx, events, token, botInfo, logger = defaultLogger, runtime = {} }) {
-  const bot = new Bot(token, botInfo ? { botInfo } : {});
-  const flow = createFlow({ dctx, events });
-  const { cfg } = dctx;
-
+/** Middleware и маршруты: команды, кнопки (callback_data) и текстовые сообщения. */
+function registerHandlers(bot, flow, { dctx, logger }) {
   // Любая ошибка сценария превращается в понятное сообщение, а не в «молчание» бота.
   bot.use(async (ctx, next) => {
     try {
@@ -82,64 +72,37 @@ export function createBot({ ctx: dctx, events, token, botInfo, logger = defaultL
   bot.on('message:text', flow.onText);
 
   bot.catch((err) => logger.error('Необработанная ошибка grammY:', err.error ?? err));
+}
 
-  // ---- Уведомления --------------------------------------------------------------------------
-  async function notifyAdmins(text) {
-    for (const chatId of cfg.telegram.adminChatIds) {
-      try {
-        await bot.api.sendMessage(chatId, text, HTML);
-      } catch (err) {
-        logger.error(`Не удалось уведомить администратора ${chatId}:`, err.message);
-      }
-    }
-  }
+/**
+ * @param {{ ctx: object, events: import('node:events').EventEmitter, token: string, botInfo?: object,
+ *           logger?: object, runtime?: { botUsername?: string } }} deps
+ */
+export function createBot({ ctx: dctx, events, token, botInfo, logger = defaultLogger, runtime = {} }) {
+  const bot = new Bot(token, botInfo ? { botInfo } : {});
+  const flow = createFlow({ dctx, events });
+  const { cfg } = dctx;
 
-  events.on('booking:created', (booking) => {
-    notifyAdmins(adminNewBookingText(booking, cfg.currency));
-  });
+  registerHandlers(bot, flow, { dctx, logger });
 
-  events.on('booking:status', async ({ booking, previous, by }) => {
-    if (booking.status !== 'cancelled' || previous === 'cancelled') return;
-    if (by === 'client') {
-      await notifyAdmins(adminCancelText(booking, cfg.currency, by));
-    } else if (booking.tgChatId != null) {
-      const text = `К сожалению, студия отменила вашу запись.\n\n💅 ${booking.serviceName}\nПозвоните нам, чтобы выбрать другое время: ${cfg.studio.phone}`;
-      await bot.api.sendMessage(booking.tgChatId, text).catch((err) => logger.error('Не удалось уведомить клиента:', err.message));
-    }
-  });
-
-  /** Отправляет все созданные к текущему моменту напоминания. Возвращает их число. */
-  async function sendReminders() {
-    const due = dueReminders(dctx);
-    for (const { booking, kind } of due) {
-      try {
-        await bot.api.sendMessage(booking.tgChatId, reminderText(booking, cfg.currency, kind), HTML);
-      } catch (err) {
-        logger.error(`Напоминание по записи ${booking.id} не доставлено:`, err.message);
-      }
-      markReminded(dctx, booking.id, kind); // даже при ошибке — иначе будем стучаться бесконечно
-    }
-    return due.length;
-  }
-
-  let timer = null;
+  const { notifyAdmins } = setupNotifications({ api: bot.api, events, cfg, logger });
+  const reminders = createReminders({ api: bot.api, dctx, logger });
 
   return {
     bot,
     notifyAdmins,
-    sendReminders,
+    sendReminders: reminders.sendReminders,
     /** Запускает long polling и цикл напоминаний. Не блокирует. */
     async start() {
       const me = await bot.api.getMe();
       runtime.botUsername = me.username;
       await bot.api.setMyCommands(COMMANDS);
       bot.start({ drop_pending_updates: false }).catch((err) => logger.error('Бот остановлен:', err.message));
-      timer = setInterval(() => sendReminders().catch((err) => logger.error('Ошибка напоминаний:', err)), REMINDER_INTERVAL_MS);
-      timer.unref();
+      reminders.start();
       return me;
     },
     async stop() {
-      if (timer) clearInterval(timer);
+      reminders.stop();
       await bot.stop().catch(() => {});
     },
   };
