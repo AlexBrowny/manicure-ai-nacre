@@ -1,0 +1,21 @@
+{
+  "name": "nacre-studio",
+  "version": "1.0.0",
+  "description": "Сайт, Telegram-бот и админ-панель для студии маникюра Nacré",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22.13" },
+  "scripts": {
+    "start": "node --env-file-if-exists=.env src/server.js",
+    "dev": "node --watch --env-file-if-exists=.env src/server.js",
+    "test": "node --test --test-reporter=spec",
+    "test:coverage": "node --test --experimental-test-coverage",
+    "demo": "node --env-file-if-exists=.env scripts/seed-demo.js",
+    "demo:clear": "node --env-file-if-exists=.env scripts/seed-demo.js --clear"
+  },
+  "dependencies": {
+    "express": "^5.3.0",
+    "grammy": "^1.46.0",
+    "zod": "^4.6.7"
+  }
+}

@@ -1,0 +1,91 @@
+/* Прелоадер hero: пять ногтей по очереди «покрываются лаком», пока грузится видео.
+   Показывается только при включённых скриптах (класс .js ставит boot.js). */
+.preloader { display: none; }
+
+.js .hero .preloader {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  display: grid;
+  place-items: center;
+  background:
+    radial-gradient(circle at 22% 18%, rgba(244, 184, 162, 0.28), transparent 46%),
+    radial-gradient(circle at 80% 88%, rgba(142, 124, 195, 0.35), transparent 50%),
+    linear-gradient(160deg, #3b2f5c, #1f1633);
+  opacity: 1;
+  visibility: visible;
+  transition: opacity 0.9s ease, visibility 0.9s;
+}
+.js .hero.is-ready .preloader { opacity: 0; visibility: hidden; pointer-events: none; }
+
+/* Анимации входа заголовка и кнопок стартуют, когда прелоадер уходит. */
+.js .hero.is-loading :is(.hero__nav, .hero__title .line, .hero__star, .hero__copy, .hero__tag, .polaroid) {
+  animation-play-state: paused;
+}
+
+.preloader__inner { display: grid; justify-items: center; gap: clamp(14px, 2.6vh, 24px); padding: 24px; }
+.preloader__logo {
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-size: clamp(42px, 6vw, 66px);
+  line-height: 1;
+  letter-spacing: -0.01em;
+  color: #fff;
+}
+.preloader__nails { width: min(330px, 72vw); height: auto; overflow: visible; }
+.preloader__text {
+  text-align: center;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.32em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.72);
+}
+.preloader__text::after {
+  content: '';
+  display: block;
+  width: 120px;
+  height: 1px;
+  margin: 14px auto 0;
+  background: linear-gradient(90deg, transparent, #f4b8a2, transparent) 0 0 / 200% 100%;
+  animation: preloader-shine 1.7s linear infinite;
+}
+
+/* ---- Ногти ---- */
+.nail__bare { fill: rgba(255, 255, 255, 0.1); }
+.nail__edge { fill: none; stroke: rgba(255, 255, 255, 0.5); stroke-width: 1.2; }
+.polish {
+  animation: nail-paint 3.8s cubic-bezier(0.5, 0, 0.2, 1) infinite both;
+  animation-delay: calc(var(--i) * 0.24s);
+}
+.gloss {
+  fill: rgba(255, 255, 255, 0.6);
+  animation: nail-gloss 3.8s ease-in-out infinite both;
+  animation-delay: calc(var(--i) * 0.24s);
+}
+.spark { fill: #f4b8a2; transform-box: fill-box; transform-origin: center; animation: nail-twinkle 2.4s ease-in-out infinite; }
+.sp2 { animation-delay: 1.2s; fill: #fff; }
+
+/* Лак наносится от кутикулы к краю ногтя, держится, блестит и стирается — цикл повторяется. */
+@keyframes nail-paint {
+  0% { transform: translateY(var(--h)); opacity: 1; }
+  26% { transform: translateY(0); opacity: 1; }
+  84% { transform: translateY(0); opacity: 1; }
+  96% { transform: translateY(0); opacity: 0; }
+  100% { transform: translateY(var(--h)); opacity: 0; }
+}
+@keyframes nail-gloss {
+  0%, 26% { transform: translateX(-12px) skewX(-18deg); opacity: 0; }
+  32% { opacity: 1; }
+  52%, 100% { transform: translateX(46px) skewX(-18deg); opacity: 0; }
+}
+@keyframes nail-twinkle {
+  0%, 100% { transform: scale(0.35); opacity: 0.25; }
+  50% { transform: scale(1); opacity: 1; }
+}
+@keyframes preloader-shine { to { background-position: -200% 0; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .js .hero .preloader { display: none; }
+  .js .hero.is-loading :is(.hero__nav, .hero__title .line, .hero__star, .hero__copy, .hero__tag, .polaroid) { animation-play-state: running; }
+}
