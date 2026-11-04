@@ -1,9 +1,9 @@
 // Список записей с фильтрами: период, мастер, статус, поиск по имени/телефону.
 import { api } from '/js/api.js';
 import { h } from '/js/dom.js';
-import { money } from '/js/format.js';
+import { dateShort, formatPhone, money } from '/js/format.js';
 import { openBookingModal, openNewBooking } from '../bookingModal.js';
-import { SOURCE, STATUS, badge, dateShort, field, formatPhone, handleError, isoAdd } from '../ui.js';
+import { SOURCE, STATUS, badge, field, handleError, isoAdd } from '../ui.js';
 
 export async function render({ root, session, setActions }) {
   const [masters, services] = await Promise.all([api.get('/api/admin/masters'), api.get('/api/admin/services')]);

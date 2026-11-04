@@ -1,5 +1,6 @@
-// Общие элементы админки: модальные окна, бейджи, форматирование дат.
+// Общие элементы админки: модальные окна, бейджи, хелперы дат.
 import { h, toast } from '/js/dom.js';
+import { formatPhone } from '/js/format.js';
 
 export const STATUS = { confirmed: 'Подтверждена', completed: 'Выполнена', cancelled: 'Отменена', no_show: 'Не пришла' };
 export const SOURCE = { web: 'Сайт', telegram: 'Telegram', admin: 'Администратор' };
@@ -61,21 +62,11 @@ export const startOfWeek = (iso) => isoAdd(iso, -weekdayIdx(iso));
 export const startOfMonth = (iso) => `${iso.slice(0, 7)}-01`;
 export const endOfMonth = (iso) => fmtISO(new Date(Date.UTC(Number(iso.slice(0, 4)), Number(iso.slice(5, 7)), 0)));
 
-const dateFmt = new Intl.DateTimeFormat('ru-RU', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC' });
-const shortFmt = new Intl.DateTimeFormat('ru-RU', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' });
-export const dateLong = (iso) => dateFmt.format(utc(iso));
-export const dateShort = (iso) => shortFmt.format(utc(iso));
-
 export const hhmm = (min) => `${String(Math.floor(min / 60)).padStart(2, '0')}:${String(min % 60).padStart(2, '0')}`;
 export const toMin = (text) => { const [a, b] = text.split(':').map(Number); return a * 60 + b; };
 
 /** 90 → «1,5 ч», 600 → «10 ч» */
 export const hoursText = (min) => `${String(Math.round((min / 60) * 10) / 10).replace('.', ',')} ч`;
-
-export function formatPhone(phone) {
-  const m = /^\+998(\d{2})(\d{3})(\d{2})(\d{2})$/.exec(phone);
-  return m ? `+998 ${m[1]} ${m[2]}-${m[3]}-${m[4]}` : phone;
-}
 
 export const telLink = (phone) => h('a', { href: `tel:${phone}`, style: { textDecoration: 'underline', textUnderlineOffset: '3px' } }, formatPhone(phone));
 

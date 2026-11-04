@@ -1,9 +1,9 @@
 // Карточка записи (статусы, заметки) и форма новой записи — общие для «Расписания» и «Записей».
 import { api } from '/js/api.js';
 import { h, toast } from '/js/dom.js';
-import { formatPhoneInput, money } from '/js/format.js';
+import { dateLong, formatPhoneInput, money } from '/js/format.js';
 import {
-  SOURCE, badge, confirmDialog, dateLong, field, handleError, openModal, telLink,
+  SOURCE, badge, confirmDialog, field, handleError, openModal, telLink,
 } from './ui.js';
 
 const dateTime = (b) => `${dateLong(b.date)}, ${b.start}–${b.end}`;

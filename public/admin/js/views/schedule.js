@@ -2,7 +2,8 @@
 import { api } from '/js/api.js';
 import { h } from '/js/dom.js';
 import { openBookingModal, openNewBooking } from '../bookingModal.js';
-import { dateLong, handleError, hhmm, isoAdd, nowMinutes } from '../ui.js';
+import { dateLong } from '/js/format.js';
+import { handleError, hhmm, isoAdd, nowMinutes } from '../ui.js';
 
 const HOUR_PX = 64;
 const DEFAULT_RANGE = [9 * 60, 21 * 60];

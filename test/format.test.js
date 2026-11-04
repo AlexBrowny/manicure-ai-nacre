@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { formatPhoneInput, isPhoneComplete, money } from '../public/js/format.js';
+import { formatPhone, formatPhoneInput, isPhoneComplete, money } from '../public/js/format.js';
 
 test('formatPhoneInput builds the Uzbek mask as digits are typed', () => {
   assert.equal(formatPhoneInput(''), '');
@@ -41,6 +41,12 @@ test('isPhoneComplete requires 12 digits for Uzbek numbers and 10+ for foreign o
   assert.equal(isPhoneComplete(''), false);
   assert.equal(isPhoneComplete('+79001234567'), true);
   assert.equal(isPhoneComplete('+7900123'), false);
+});
+
+test('formatPhone groups Uzbek numbers and leaves other numbers as is', () => {
+  assert.equal(formatPhone('+998901234567'), '+998 90 123-45-67');
+  assert.equal(formatPhone('+79001234567'), '+79001234567');
+  assert.equal(formatPhone('+99890123'), '+99890123');
 });
 
 test('money formats prices in sums with thousands separators', () => {

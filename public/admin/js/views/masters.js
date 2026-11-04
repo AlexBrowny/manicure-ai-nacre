@@ -118,72 +118,86 @@ function servicesPicker(master, services) {
   return { el, toggleAll, read: () => boxes.filter((b) => b.checked).map((b) => Number(b.value)) };
 }
 
-function openEditor({ master, services, onSaved }) {
-  const data = master ?? blankMaster(services);
+function colorPicker(initial) {
+  const input = h('input', { type: 'color', value: initial });
+  const el = h('div', { class: 'swatches' }, SWATCHES.map((c) => h('button', {
+    type: 'button', style: { '--c': c }, 'aria-label': `Цвет ${c}`, 'aria-pressed': String(c.toLowerCase() === initial.toLowerCase()),
+    onclick: () => { input.value = c; for (const b of el.querySelectorAll('button')) b.setAttribute('aria-pressed', String(b.style.getPropertyValue('--c') === c)); },
+  })), input);
+  return { el, read: () => input.value };
+}
+
+const section = (title, ...content) => h('div', {}, h('p', { style: { fontWeight: '600', margin: '4px 0 10px' } }, title), ...content);
+
+/** Поля формы мастера: разметка тела модалки, чтение значений и строка ошибки. */
+function masterForm(data, services) {
   const name = h('input', { value: data.name, maxlength: '60', placeholder: 'Например, Алина Ветрова' });
   const title = h('input', { value: data.title, maxlength: '80', placeholder: 'Специализация' });
   const bio = h('textarea', { maxlength: '400', placeholder: 'Пара слов о мастере — покажем на сайте' }, data.bio);
   const photo = h('input', { type: 'url', value: data.photoUrl, placeholder: 'https://… (необязательно)' });
   const active = h('input', { type: 'checkbox', checked: data.active });
-  const color = h('input', { type: 'color', value: data.color });
-  const swatches = h('div', { class: 'swatches' }, SWATCHES.map((c) => h('button', {
-    type: 'button', style: { '--c': c }, 'aria-label': `Цвет ${c}`, 'aria-pressed': String(c.toLowerCase() === data.color.toLowerCase()),
-    onclick: () => { color.value = c; for (const b of swatches.querySelectorAll('button')) b.setAttribute('aria-pressed', String(b.style.getPropertyValue('--c') === c)); },
-  })), color);
+  const color = colorPicker(data.color);
   const sched = scheduleEditor(data);
   const offs = daysOffEditor(data);
   const picker = servicesPicker(data, services);
   const error = h('p', { class: 'form-err', role: 'alert' });
 
-  async function save() {
-    error.textContent = '';
-    const body = {
-      name: name.value.trim(), title: title.value.trim(), bio: bio.value.trim(), color: color.value, photoUrl: photo.value.trim(),
-      active: active.checked, serviceIds: picker.read(), schedule: sched.read(), daysOff: offs.read(),
-    };
-    try {
-      if (master) await api.put(`/api/admin/masters/${master.id}`, body);
-      else await api.post('/api/admin/masters', body);
-      toast(master ? 'Изменения сохранены' : 'Мастер добавлен');
-      modal.close();
-      onSaved();
-    } catch (err) {
-      if (err.status === 401) { handleError(err); return; }
-      error.textContent = err.message;
-    }
-  }
+  const body = [
+    h('div', { class: 'form-row' }, field('Имя', name), field('Специализация', title)),
+    field('О мастере', bio),
+    h('div', { class: 'form-row' }, field('Фото (ссылка)', photo), section('Цвет в календаре', color.el)),
+    h('label', { style: { display: 'flex', alignItems: 'center', gap: '10px' } }, active, 'Принимает записи (виден на сайте и в боте)'),
+    section('Рабочие дни и часы', sched.el),
+    section('Выходные и отпуск', offs.el),
+    section('Какие услуги выполняет', h('div', { style: { marginBottom: '8px' } }, h('button', { class: 'btn btn--sm', type: 'button', onclick: picker.toggleAll }, 'Выбрать все / снять')), picker.el),
+    error,
+  ];
+  const read = () => ({
+    name: name.value.trim(), title: title.value.trim(), bio: bio.value.trim(), color: color.read(), photoUrl: photo.value.trim(),
+    active: active.checked, serviceIds: picker.read(), schedule: sched.read(), daysOff: offs.read(),
+  });
+  const showError = (message) => { error.textContent = message; };
+  return { body, read, showError };
+}
 
-  async function remove() {
-    if (!(await confirmDialog(`Удалить мастера «${master.name}»? Это нельзя отменить.`, { confirmText: 'Удалить' }))) return;
-    try {
-      await api.delete(`/api/admin/masters/${master.id}`);
-      toast('Мастер удалён');
-      modal.close();
-      onSaved();
-    } catch (err) {
-      error.textContent = err.code === 'master_in_use'
-        ? 'У мастера есть записи, поэтому его нельзя удалить. Снимите галочку «Принимает записи» — мастер исчезнет с сайта, а история сохранится.'
-        : err.message;
-    }
+/** Создать или обновить мастера; done() закрывает редактор и перезагружает список. */
+async function saveMaster(master, form, done) {
+  form.showError('');
+  const body = form.read();
+  try {
+    if (master) await api.put(`/api/admin/masters/${master.id}`, body);
+    else await api.post('/api/admin/masters', body);
+    toast(master ? 'Изменения сохранены' : 'Мастер добавлен');
+    done();
+  } catch (err) {
+    if (err.status === 401) { handleError(err); return; }
+    form.showError(err.message);
   }
+}
 
-  const section = (title, ...content) => h('div', {}, h('p', { style: { fontWeight: '600', margin: '4px 0 10px' } }, title), ...content);
+async function removeMaster(master, form, done) {
+  if (!(await confirmDialog(`Удалить мастера «${master.name}»? Это нельзя отменить.`, { confirmText: 'Удалить' }))) return;
+  try {
+    await api.delete(`/api/admin/masters/${master.id}`);
+    toast('Мастер удалён');
+    done();
+  } catch (err) {
+    form.showError(err.code === 'master_in_use'
+      ? 'У мастера есть записи, поэтому его нельзя удалить. Снимите галочку «Принимает записи» — мастер исчезнет с сайта, а история сохранится.'
+      : err.message);
+  }
+}
+
+function openEditor({ master, services, onSaved }) {
+  const form = masterForm(master ?? blankMaster(services), services);
+  const done = () => { modal.close(); onSaved(); };
   const modal = openModal({
     title: master ? 'Мастер' : 'Новый мастер', width: 720,
-    body: [
-      h('div', { class: 'form-row' }, field('Имя', name), field('Специализация', title)),
-      field('О мастере', bio),
-      h('div', { class: 'form-row' }, field('Фото (ссылка)', photo), section('Цвет в календаре', swatches)),
-      h('label', { style: { display: 'flex', alignItems: 'center', gap: '10px' } }, active, 'Принимает записи (виден на сайте и в боте)'),
-      section('Рабочие дни и часы', sched.el),
-      section('Выходные и отпуск', offs.el),
-      section('Какие услуги выполняет', h('div', { style: { marginBottom: '8px' } }, h('button', { class: 'btn btn--sm', type: 'button', onclick: picker.toggleAll }, 'Выбрать все / снять')), picker.el),
-      error,
-    ],
+    body: form.body,
     footer: [
-      master && h('button', { class: 'btn btn--danger spacer', type: 'button', onclick: remove }, 'Удалить'),
+      master && h('button', { class: 'btn btn--danger spacer', type: 'button', onclick: () => removeMaster(master, form, done) }, 'Удалить'),
       h('button', { class: 'btn', type: 'button', onclick: () => modal.close() }, 'Отмена'),
-      h('button', { class: 'btn btn--primary', type: 'button', onclick: save }, master ? 'Сохранить' : 'Добавить мастера'),
+      h('button', { class: 'btn btn--primary', type: 'button', onclick: () => saveMaster(master, form, done) }, master ? 'Сохранить' : 'Добавить мастера'),
     ].filter(Boolean),
   });
 }

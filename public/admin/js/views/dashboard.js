@@ -1,9 +1,9 @@
 // Обзор: загрузка студии и мастеров, динамика по дням, тепловая карта, источники и услуги.
 import { api } from '/js/api.js';
 import { h, svg } from '/js/dom.js';
-import { money } from '/js/format.js';
+import { dateShort, money } from '/js/format.js';
 import {
-  WEEKDAYS, dateShort, endOfMonth, handleError, hoursText, isoAdd, startOfMonth, startOfWeek,
+  WEEKDAYS, endOfMonth, handleError, hoursText, isoAdd, startOfMonth, startOfWeek,
 } from '../ui.js';
 
 const RANGES = [
