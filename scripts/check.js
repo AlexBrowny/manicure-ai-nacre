@@ -1,9 +1,9 @@
 // Проверка сборки: проект без бандлера, поэтому «сборка» = синтаксис всех JS-файлов + тесты (npm run build).
 import { spawnSync } from 'node:child_process';
-import { readdirSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
-const ROOTS = ['src', 'scripts', 'public', 'test'];
+const ROOTS = ['api', 'src', 'scripts', 'public', 'test'];
 
 function jsFiles(dir) {
   return readdirSync(dir).flatMap((name) => {
@@ -13,7 +13,7 @@ function jsFiles(dir) {
   });
 }
 
-const files = ROOTS.flatMap(jsFiles);
+const files = ROOTS.filter((root) => existsSync(root)).flatMap(jsFiles); // на Vercel тестов нет (.vercelignore)
 const broken = files.filter((file) => spawnSync(process.execPath, ['--check', file], { stdio: 'inherit' }).status !== 0);
 if (broken.length > 0) {
   process.stderr.write(`Синтаксические ошибки в ${broken.length} файл(ах): ${broken.join(', ')}\n`);

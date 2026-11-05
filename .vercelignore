@@ -1,0 +1,10 @@
+# Секреты и локальные данные на Vercel не уходят: переменные задаются в настройках проекта.
+.env
+.env.*
+!.env.example
+.neon
+data/
+node_modules/
+coverage/
+.claude/
+test/

@@ -29,6 +29,7 @@ async function assembleMasters(db, masterRows) {
     bio: m.bio,
     color: m.color,
     photoUrl: m.photo_url,
+    photoKey: m.photo_key ?? null,
     active: Boolean(m.active),
     sort: m.sort,
     serviceIds: (services.get(m.id) ?? []).map((r) => r.service_id),
@@ -107,11 +108,12 @@ export async function updateMaster({ db }, id, data) {
 }
 
 /** @param {Ctx} ctx */
-export async function deleteMaster({ db }, id) {
-  await getMaster({ db }, id);
+export async function deleteMaster({ db, storage }, id) {
+  const master = await getMaster({ db }, id);
   const { n } = await db.get('SELECT COUNT(*)::int AS n FROM bookings WHERE master_id = ?', [id]);
   if (n > 0) {
     throw conflict('У мастера есть записи. Отключите мастера вместо удаления.', 'master_in_use');
   }
   await db.run('DELETE FROM masters WHERE id = ?', [id]);
+  if (master.photoKey) await storage?.remove(master.photoKey).catch(() => {});
 }

@@ -8,6 +8,19 @@ export default defineConfig({
   auth: true,
   functions: {
     hello: { name: "Hello World", source: "./hello.ts" },
+    // Раз в минуту вызывает POST /api/cron/reminders на Vercel (APP_URL, CRON_SECRET — из .env: neon deploy --env .env)
+    reminders: {
+      name: "Reminders cron",
+      source: "./reminders-cron.ts",
+      env: { APP_URL: process.env.APP_URL!, CRON_SECRET: process.env.CRON_SECRET! },
+    },
+  },
+  triggers: {
+    "reminders-every-minute": {
+      type: "schedule",
+      function: "reminders",
+      cron: "* * * * *",
+    },
   },
   buckets: {
     // "private" is the default; use "public_read" for anonymous reads

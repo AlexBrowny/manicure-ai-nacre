@@ -1,4 +1,5 @@
 // Преобразование доменных объектов в JSON для клиентов (время — 'HH:MM').
+import { photoUrlOf } from '../domain/photos.js';
 import { minToHHMM } from '../time.js';
 
 const hhmm = (min) => (min == null ? null : minToHHMM(min));
@@ -12,7 +13,7 @@ export function serviceDto(s) {
 
 export function publicMasterDto(m, nextSlot = undefined) {
   const dto = {
-    id: m.id, name: m.name, title: m.title, bio: m.bio, color: m.color, photoUrl: m.photoUrl,
+    id: m.id, name: m.name, title: m.title, bio: m.bio, color: m.color, photoUrl: photoUrlOf(m),
     serviceIds: m.serviceIds,
   };
   if (nextSlot !== undefined) dto.nextSlot = nextSlot && { date: nextSlot.date, time: hhmm(nextSlot.start) };
@@ -21,7 +22,9 @@ export function publicMasterDto(m, nextSlot = undefined) {
 
 export function adminMasterDto(m) {
   return {
-    id: m.id, name: m.name, title: m.title, bio: m.bio, color: m.color, photoUrl: m.photoUrl,
+    id: m.id, name: m.name, title: m.title, bio: m.bio, color: m.color,
+    // photoUrl — внешняя ссылка из формы; photo — что показывать (загруженное фото важнее ссылки).
+    photoUrl: m.photoUrl, photo: photoUrlOf(m), hasUploadedPhoto: Boolean(m.photoKey),
     active: m.active, serviceIds: m.serviceIds,
     schedule: m.schedule.map((d) => ({
       weekday: d.weekday, start: hhmm(d.startMin), end: hhmm(d.endMin),

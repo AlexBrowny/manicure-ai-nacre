@@ -122,3 +122,19 @@ public/              сайт (index.html, css/, js/) и админка (admin/)
 test/                node:test
 scripts/seed-demo.js демо-данные
 ```
+
+## Публикация на Vercel
+
+Сайт и API — одна функция `api/index.js`, статика из `public/` отдаётся CDN. Бот работает через webhook, а не long polling, поэтому на Vercel нет постоянного процесса.
+
+1. `vercel link`, затем задать переменные из `.env.example` в проекте Vercel (`DATABASE_URL`, `DATABASE_URL_UNPOOLED`, `AWS_*`, `TELEGRAM_*`, `ADMIN_*`, `SESSION_SECRET`, `CRON_SECRET`, `COOKIE_SECURE=1`, `TRUST_PROXY=1`, `PUBLIC_URL`, `WEBAPP_URL` и остальные настройки студии). Строки подключения — без кавычек.
+2. `vercel deploy --prod`.
+3. Напоминания: функция Neon `reminders` раз в минуту вызывает `POST /api/cron/reminders` (Vercel Hobby запускает cron лишь раз в сутки). Задать `APP_URL` и `CRON_SECRET` в `.env` и выполнить `neon deploy --env .env`.
+4. Бот и кнопка мини-приложения: `npm run webhook -- set https://<проект>.vercel.app`.
+5. Вернуть бота на локальный компьютер: `npm run webhook -- delete`, затем `npm start`. Пока webhook стоит, `npm start` бота не запускает (`FORCE_POLLING=1` — запустить принудительно).
+
+CSP-заголовки для статики лежат в `vercel.json`; после правки CSP в `src/http/app.js` выполните `npm run vercel:config` (тест `test/deploy.test.js` следит за синхронностью).
+
+## Фото мастеров
+
+В админке: «Мастера» → редактор → «Загрузить фото». Картинка уменьшается в браузере до 800 px и кладётся в бакет Neon `assets`; сайт отдаёт её со своего адреса `/media/…`. Нужны `AWS_*` из `neon env pull`.

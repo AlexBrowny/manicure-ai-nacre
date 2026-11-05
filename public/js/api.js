@@ -14,11 +14,12 @@ async function request(path, { method = 'GET', body, params } = {}) {
   }
   let response;
   try {
+    const isFile = body instanceof Blob; // файл уходит как есть, остальное — JSON
     response = await fetch(url, {
       method,
       credentials: 'same-origin',
-      headers: body === undefined ? {} : { 'Content-Type': 'application/json' },
-      body: body === undefined ? undefined : JSON.stringify(body),
+      headers: body === undefined ? {} : { 'Content-Type': isFile ? body.type || 'application/octet-stream' : 'application/json' },
+      body: body === undefined || isFile ? body : JSON.stringify(body),
     });
   } catch {
     throw new ApiError('Нет связи с сервером. Проверьте интернет и попробуйте ещё раз.', 'network', 0);
@@ -36,4 +37,5 @@ export const api = {
   put: (path, body) => request(path, { method: 'PUT', body }),
   patch: (path, body) => request(path, { method: 'PATCH', body }),
   delete: (path) => request(path, { method: 'DELETE' }),
+  upload: (path, file) => request(path, { method: 'PUT', body: file }),
 };

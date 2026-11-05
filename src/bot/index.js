@@ -1,5 +1,5 @@
 // Telegram-бот: сборка grammY и маршрутизация команд/кнопок. Уведомления и напоминания — в соседних модулях.
-import { Bot } from 'grammy';
+import { Bot, webhookCallback } from 'grammy';
 import { AppError } from '../errors.js';
 import { logger as defaultLogger } from '../logger.js';
 import { createFlow } from './flow.js';
@@ -84,16 +84,16 @@ function registerHandlers(bot, flow, { dctx, logger }) {
 
 /**
  * @param {{ ctx: object, events: import('node:events').EventEmitter, token: string, botInfo?: object,
- *           logger?: object, runtime?: { botUsername?: string } }} deps
+ *           logger?: object, runtime?: { botUsername?: string }, defer?: (p: Promise) => void }} deps
  */
-export function createBot({ ctx: dctx, events, token, botInfo, logger = defaultLogger, runtime = {} }) {
+export function createBot({ ctx: dctx, events, token, botInfo, logger = defaultLogger, runtime = {}, defer }) {
   const bot = new Bot(token, botInfo ? { botInfo } : {});
   const flow = createFlow({ dctx, events });
   const { cfg } = dctx;
 
   registerHandlers(bot, flow, { dctx, logger });
 
-  const { notifyAdmins } = setupNotifications({ api: bot.api, events, cfg, logger });
+  const { notifyAdmins } = setupNotifications({ api: bot.api, events, cfg, logger, defer });
   const reminders = createReminders({ api: bot.api, dctx, logger });
   runtime.sendReminder = reminders.sendManualReminder; // кнопка «Напомнить» в админке
 
@@ -102,12 +102,21 @@ export function createBot({ ctx: dctx, events, token, botInfo, logger = defaultL
     notifyAdmins,
     sendReminders: reminders.sendReminders,
     sendManualReminder: reminders.sendManualReminder,
-    /** Запускает long polling и цикл напоминаний. Не блокирует. */
-    async start() {
+    /** Команды и кнопка меню в Telegram. Возвращает данные бота. */
+    async configure() {
       const me = await bot.api.getMe();
       runtime.botUsername = me.username;
       await bot.api.setMyCommands(COMMANDS);
       await setupMenuButton(bot.api, dctx.cfg.telegram.webAppUrl, logger);
+      return me;
+    },
+    /** Express-обработчик для режима webhook (Vercel): Telegram сам присылает обновления. */
+    webhookHandler(secretToken) {
+      return webhookCallback(bot, 'express', { secretToken, onTimeout: 'return', timeoutMilliseconds: 25_000 });
+    },
+    /** Запускает long polling и цикл напоминаний. Не блокирует. */
+    async start() {
+      const me = await this.configure();
       bot.start({ drop_pending_updates: false }).catch((err) => logger.error('Бот остановлен:', err.message));
       reminders.start();
       return me;

@@ -92,6 +92,8 @@ const MIGRATIONS = [
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
   );
   `,
+  // v2: фото мастера, загруженное в бакет Neon (ключ объекта). photo_url остаётся для внешней ссылки.
+  `ALTER TABLE masters ADD COLUMN photo_key TEXT;`,
 ];
 
 /** `?` → `$1, $2, …` (в наших запросах нет вопросительных знаков внутри строк). */
@@ -168,7 +170,7 @@ export async function openDb({ url, migrationUrl = url }) {
       client.release();
     }
   };
-  return { ...adapter(pool, { begin }), close: () => pool.end() };
+  return { ...adapter(pool, { begin }), pool, close: () => pool.end() };
 }
 
 /** Postgres в памяти процесса (PGlite) — для тестов и демо без сети. */

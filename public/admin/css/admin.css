@@ -248,3 +248,10 @@ table.table { width: 100%; border-collapse: collapse; font-size: 14.5px; }
   .offs__row { grid-template-columns: 1fr 1fr; }
   .kpi__value { font-size: 32px; }
 }
+
+/* Фото мастера в редакторе */
+.photo-pick { display: flex; align-items: center; gap: 16px; }
+.photo-pick__ava { width: 72px; height: 72px; font-size: 30px; }
+.photo-pick__actions { display: grid; gap: 6px; }
+.photo-pick__btns { display: flex; flex-wrap: wrap; gap: 8px; }
+.photo-pick__status { font-size: 12px; min-height: 1em; }

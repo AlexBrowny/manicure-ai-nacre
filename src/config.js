@@ -60,6 +60,11 @@ export function loadConfig(env = process.env) {
     // Lakebase Postgres на Neon: пул для приложения и прямое подключение для миграций (`neon env pull`).
     databaseUrl: env.DATABASE_URL || '',
     databaseUrlDirect: env.DATABASE_URL_UNPOOLED || env.DATABASE_URL || '',
+    // Neon Object Storage: фото мастеров. Бакет объявлен в neon.ts, ключи — AWS_* из `neon env pull`.
+    storage: {
+      bucket: env.MEDIA_BUCKET || 'assets',
+      enabled: Boolean(env.AWS_ENDPOINT_URL_S3 && env.AWS_ACCESS_KEY_ID && env.AWS_SECRET_ACCESS_KEY),
+    },
     timeZone: env.STUDIO_TZ || 'Asia/Tashkent',
     currency: env.CURRENCY || 'сум',
     slotStepMin: int(env, 'SLOT_STEP_MIN', 30, { min: 5, max: 120 }),
@@ -87,7 +92,13 @@ export function loadConfig(env = process.env) {
       botUsername: (env.TELEGRAM_BOT_USERNAME || '').replace(/^@/, ''),
       adminChatIds,
       webAppUrl: webAppUrl(env),
+      // Режим webhook (Vercel): Telegram подписывает запросы этим секретом.
+      webhookSecret: env.TELEGRAM_WEBHOOK_SECRET || '',
     },
+    // Публичный https-адрес сайта (Vercel) — для webhook бота и мини-приложения.
+    publicUrl: (env.PUBLIC_URL || '').replace(/\/+$/, ''),
+    // Секрет для POST /api/cron/reminders (его шлёт cron-функция Neon раз в минуту).
+    cronSecret: env.CRON_SECRET || '',
     trustProxy: env.TRUST_PROXY === '1',
     warnings,
   };

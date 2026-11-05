@@ -1,41 +1,40 @@
-import { EventEmitter } from 'node:events';
-import { createBot } from './bot/index.js';
-import { loadConfig } from './config.js';
-import { openDb } from './db.js';
-import { createApp } from './http/app.js';
+// Локальный запуск: сайт + админка + бот в режиме long polling + цикл напоминаний.
+import { bootstrap } from './bootstrap.js';
 import { logger } from './logger.js';
-import { seedDefaults } from './seed.js';
 
-const cfg = loadConfig();
-for (const warning of cfg.warnings) logger.warn(warning);
-if (cfg.admin.generatedPassword) logger.warn(`Временный пароль админ-панели: ${cfg.admin.password}`);
-
-const db = await openDb({ url: cfg.databaseUrl, migrationUrl: cfg.databaseUrlDirect });
+const { cfg, db, storage, telegram, app } = await bootstrap();
 logger.info('База данных: Lakebase Postgres (Neon) подключена.');
-const ctx = { db, cfg, now: () => new Date() };
-if (await seedDefaults(ctx)) logger.info('База пуста — добавлены примерные услуги и мастера (их можно изменить в админ-панели).');
+logger.info(storage ? `Фото мастеров: бакет Neon «${cfg.storage.bucket}».` : 'Бакет Neon не настроен (нет AWS_* в .env) — загрузка фото мастеров выключена.');
 
-const events = new EventEmitter();
-const runtime = {};
-const app = createApp({ ctx, events, runtime });
 const server = app.listen(cfg.port, () => {
   logger.info(`Сайт:         http://localhost:${cfg.port}/`);
   logger.info(`Админ-панель: http://localhost:${cfg.port}/admin/`);
 });
 
-let telegram = null;
-if (cfg.telegram.token) {
-  telegram = createBot({ ctx, events, token: cfg.telegram.token, runtime });
-  telegram.start()
-    .then((me) => logger.info(`Telegram-бот запущен: @${me.username}`))
-    .catch((err) => logger.error(`Бот не запущен (проверьте TELEGRAM_BOT_TOKEN): ${err.message}`));
-} else {
-  logger.warn('TELEGRAM_BOT_TOKEN не задан — сайт и админка работают, бот выключен.');
+/** Если бот уже работает на Vercel (webhook), локальный long polling его бы «украл» — не запускаем. */
+async function startBot() {
+  if (!telegram) {
+    logger.warn('TELEGRAM_BOT_TOKEN не задан — сайт и админка работают, бот выключен.');
+    return false;
+  }
+  const hook = await telegram.bot.api.getWebhookInfo();
+  if (hook.url && process.env.FORCE_POLLING !== '1') {
+    logger.warn(`Бот работает через webhook (${new URL(hook.url).host}) — локально бот не запущен. FORCE_POLLING=1 заберёт бота сюда.`);
+    return false;
+  }
+  const me = await telegram.start();
+  logger.info(`Telegram-бот запущен: @${me.username}`);
+  return true;
 }
+
+let botRunning = false;
+startBot()
+  .then((running) => { botRunning = running; })
+  .catch((err) => logger.error(`Бот не запущен (проверьте TELEGRAM_BOT_TOKEN): ${err.message}`));
 
 function shutdown(signal) {
   logger.info(`${signal}: останавливаюсь…`);
-  Promise.resolve(telegram?.stop()).finally(() => {
+  Promise.resolve(botRunning ? telegram.stop() : null).finally(() => {
     server.close(() => {
       db.close().finally(() => process.exit(0));
     });

@@ -18,13 +18,14 @@ export function handleError(err) {
   toast(err?.message ?? 'Что-то пошло не так', { error: true, ms: 6000 });
 }
 
-export function openModal({ title, width = 560, body, footer = [] }) {
+export function openModal({ title, width = 560, body, footer = [], onClose }) {
   const previous = document.activeElement;
   const onKey = (event) => { if (event.key === 'Escape') close(); };
   function close() {
     back.remove();
     document.removeEventListener('keydown', onKey);
     previous?.focus?.();
+    onClose?.();
   }
   const modal = h('div', { class: 'modal', role: 'dialog', 'aria-modal': 'true', 'aria-label': title, style: { '--w': `${width}px` } },
     h('div', { class: 'modal__head' },

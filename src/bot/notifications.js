@@ -5,9 +5,10 @@ export const HTML = { parse_mode: 'HTML', link_preview_options: { is_disabled: t
 
 /**
  * Подписывается на события записей и возвращает notifyAdmins(text).
- * @param {{ api: object, events: import('node:events').EventEmitter, cfg: object, logger: object }} deps
+ * defer(promise) продлевает жизнь отправки после ответа HTTP — нужно на Vercel (waitUntil); локально ничего не делает.
+ * @param {{ api: object, events: import('node:events').EventEmitter, cfg: object, logger: object, defer?: (p: Promise) => void }} deps
  */
-export function setupNotifications({ api, events, cfg, logger }) {
+export function setupNotifications({ api, events, cfg, logger, defer = () => {} }) {
   async function notifyAdmins(text) {
     for (const chatId of cfg.telegram.adminChatIds) {
       try {
@@ -24,13 +25,13 @@ export function setupNotifications({ api, events, cfg, logger }) {
   }
 
   events.on('booking:created', (booking) => {
-    notifyAdmins(adminNewBookingText(booking, cfg.currency));
+    defer(notifyAdmins(adminNewBookingText(booking, cfg.currency)));
   });
 
-  events.on('booking:status', async ({ booking, previous, by }) => {
+  events.on('booking:status', ({ booking, previous, by }) => {
     if (booking.status !== 'cancelled' || previous === 'cancelled') return;
-    if (by === 'client') await notifyAdmins(adminCancelText(booking, cfg.currency, by));
-    else if (booking.tgChatId != null) await notifyClientCancelled(booking);
+    if (by === 'client') defer(notifyAdmins(adminCancelText(booking, cfg.currency, by)));
+    else if (booking.tgChatId != null) defer(notifyClientCancelled(booking));
   });
 
   return { notifyAdmins };

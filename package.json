@@ -15,11 +15,15 @@
     "import:sqlite": "node --env-file-if-exists=.env scripts/import-sqlite.js",
     "test:coverage": "node --test --experimental-test-coverage",
     "demo": "node --env-file-if-exists=.env scripts/seed-demo.js",
-    "demo:clear": "node --env-file-if-exists=.env scripts/seed-demo.js --clear"
+    "demo:clear": "node --env-file-if-exists=.env scripts/seed-demo.js --clear",
+    "vercel:config": "node scripts/vercel-config.js",
+    "webhook": "node --env-file-if-exists=.env scripts/telegram-webhook.js"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1161.0",
     "@neon/config": "^1.10.1",
     "@neon/env": "^1.6.9",
+    "@vercel/functions": "^3.10.6",
     "express": "^5.3.0",
     "grammy": "^1.46.0",
     "pg": "^8.23.1",

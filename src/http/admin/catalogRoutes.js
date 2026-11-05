@@ -4,6 +4,7 @@ import {
   createMaster, createService, deleteMaster, deleteService, getMaster, listMasters, listServices,
   updateMaster, updateService,
 } from '../../domain/catalog.js';
+import { removeMasterPhoto, setMasterPhoto, MAX_PHOTO_BYTES } from '../../domain/photos.js';
 import { badRequest } from '../../errors.js';
 import { adminMasterDto, serviceDto } from '../dto.js';
 import { ok } from '../respond.js';
@@ -53,6 +54,17 @@ export function adminCatalogRoutes({ ctx }) {
   router.delete('/masters/:id', async (req, res) => {
     await deleteMaster(ctx, idOf(req));
     res.json(ok());
+  });
+
+  // Фото мастера — сырые байты картинки в теле запроса; тип проверяется по содержимому.
+  const rawImage = express.raw({ type: ['image/*', 'application/octet-stream'], limit: MAX_PHOTO_BYTES });
+  router.put('/masters/:id/photo', rawImage, async (req, res) => {
+    const bytes = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
+    res.json(ok(adminMasterDto(await setMasterPhoto(ctx, idOf(req), bytes))));
+  });
+
+  router.delete('/masters/:id/photo', async (req, res) => {
+    res.json(ok(adminMasterDto(await removeMasterPhoto(ctx, idOf(req)))));
   });
 
   return router;

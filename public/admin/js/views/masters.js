@@ -5,6 +5,7 @@ import { initials } from '/js/format.js';
 import {
   WEEKDAYS, WEEKDAYS_FULL, confirmDialog, field, handleError, hoursText, isoAdd, openModal, startOfWeek,
 } from '../ui.js';
+import { photoPicker } from '../photoPicker.js';
 
 const SWATCHES = ['#8E7CC3', '#F0A58C', '#C77DAE', '#6C8EBF', '#5DAE9A', '#D9A441', '#B5655F', '#7A6BAA'];
 const DEFAULT_HOURS = { start: '10:00', end: '19:00', breakStart: '14:00', breakEnd: '15:00' };
@@ -29,7 +30,7 @@ function weekChips(master) {
 function masterCard(master, load, { onEdit }) {
   return h('article', { class: 'card mcard', style: { opacity: master.active ? '1' : '0.65' } },
     h('div', { class: 'mcard__top' },
-      h('div', { class: 'mcard__ava', style: { '--c': master.color } }, master.photoUrl ? h('img', { src: master.photoUrl, alt: '' }) : initials(master.name)),
+      h('div', { class: 'mcard__ava', style: { '--c': master.color } }, master.photo ? h('img', { src: master.photo, alt: '' }) : initials(master.name)),
       h('div', {}, h('p', { class: 'mcard__name' }, master.name), h('p', { class: 'mcard__title' }, master.title || 'Мастер'),
         !master.active && h('span', { class: 'badge badge--cancelled' }, 'Не принимает записи'))),
     weekChips(master),
@@ -130,22 +131,27 @@ function colorPicker(initial) {
 const section = (title, ...content) => h('div', {}, h('p', { style: { fontWeight: '600', margin: '4px 0 10px' } }, title), ...content);
 
 /** Поля формы мастера: разметка тела модалки, чтение значений и строка ошибки. */
-function masterForm(data, services) {
+function masterForm(data, services, master, onPhotoChange) {
   const name = h('input', { value: data.name, maxlength: '60', placeholder: 'Например, Алина Ветрова' });
   const title = h('input', { value: data.title, maxlength: '80', placeholder: 'Специализация' });
   const bio = h('textarea', { maxlength: '400', placeholder: 'Пара слов о мастере — покажем на сайте' }, data.bio);
-  const photo = h('input', { type: 'url', value: data.photoUrl, placeholder: 'https://… (необязательно)' });
+  const photo = h('input', { type: 'url', value: data.photoUrl, placeholder: 'https://… (если фото уже где-то лежит)' });
   const active = h('input', { type: 'checkbox', checked: data.active });
   const color = colorPicker(data.color);
   const sched = scheduleEditor(data);
   const offs = daysOffEditor(data);
   const picker = servicesPicker(data, services);
   const error = h('p', { class: 'form-err', role: 'alert' });
+  const photoPick = photoPicker({ master, name: () => name.value.trim(), color: () => color.read(), onError: (m) => { error.textContent = m; }, onChange: onPhotoChange });
+  name.addEventListener('input', photoPick.refresh);
+  color.el.addEventListener('click', () => queueMicrotask(photoPick.refresh));
+  color.el.addEventListener('input', photoPick.refresh);
 
   const body = [
     h('div', { class: 'form-row' }, field('Имя', name), field('Специализация', title)),
     field('О мастере', bio),
-    h('div', { class: 'form-row' }, field('Фото (ссылка)', photo), section('Цвет в календаре', color.el)),
+    section('Фото', photoPick.el),
+    h('div', { class: 'form-row' }, field('Или ссылка на фото', photo), section('Цвет в календаре', color.el)),
     h('label', { style: { display: 'flex', alignItems: 'center', gap: '10px' } }, active, 'Принимает записи (виден на сайте и в боте)'),
     section('Рабочие дни и часы', sched.el),
     section('Выходные и отпуск', offs.el),
@@ -157,7 +163,7 @@ function masterForm(data, services) {
     active: active.checked, serviceIds: picker.read(), schedule: sched.read(), daysOff: offs.read(),
   });
   const showError = (message) => { error.textContent = message; };
-  return { body, read, showError };
+  return { body, read, showError, uploadPending: photoPick.uploadPending };
 }
 
 /** Создать или обновить мастера; done() закрывает редактор и перезагружает список. */
@@ -166,7 +172,7 @@ async function saveMaster(master, form, done) {
   const body = form.read();
   try {
     if (master) await api.put(`/api/admin/masters/${master.id}`, body);
-    else await api.post('/api/admin/masters', body);
+    else await form.uploadPending((await api.post('/api/admin/masters', body)).id);
     toast(master ? 'Изменения сохранены' : 'Мастер добавлен');
     done();
   } catch (err) {
@@ -189,9 +195,12 @@ async function removeMaster(master, form, done) {
 }
 
 function openEditor({ master, services, onSaved }) {
-  const form = masterForm(master ?? blankMaster(services), services);
-  const done = () => { modal.close(); onSaved(); };
+  let photoChanged = false; // фото уже сохранено на сервере — обновим карточки и при «Отмене»
+  let saved = false;
+  const form = masterForm(master ?? blankMaster(services), services, master, () => { photoChanged = true; });
+  const done = () => { saved = true; modal.close(); onSaved(); };
   const modal = openModal({
+    onClose: () => { if (photoChanged && !saved) onSaved(); },
     title: master ? 'Мастер' : 'Новый мастер', width: 720,
     body: form.body,
     footer: [

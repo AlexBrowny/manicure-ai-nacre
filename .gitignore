@@ -5,3 +5,6 @@ data/*.db-*
 coverage/
 *.log
 .neon
+
+.vercel
+.env*

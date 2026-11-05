@@ -2,6 +2,7 @@ import { EventEmitter } from 'node:events';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
 import { ZodError } from 'zod';
+import { readMedia } from '../domain/photos.js';
 import { AppError } from '../errors.js';
 import { logger as defaultLogger } from '../logger.js';
 import { sameOriginGuard } from './auth.js';
@@ -9,10 +10,11 @@ import { fail } from './respond.js';
 import { adminRoutes } from './adminRoutes.js';
 import { miniappRoutes } from './miniappRoutes.js';
 import { publicRoutes } from './publicRoutes.js';
+import { serviceRoutes } from './serviceRoutes.js';
 
 const PUBLIC_DIR = fileURLToPath(new URL('../../public', import.meta.url));
 
-const CSP = [
+export const CSP = [
   "default-src 'self'",
   "script-src 'self' https://www.youtube.com", // IFrame API фонового видео hero
   "frame-src https://www.youtube-nocookie.com https://www.youtube.com",
@@ -27,7 +29,7 @@ const CSP = [
 ].join('; ');
 
 // Мини-приложение грузит SDK Telegram и открывается во фрейме Telegram Web — ему нужна своя политика.
-const MINIAPP_CSP = CSP
+export const MINIAPP_CSP = CSP
   .replace("script-src 'self' https://www.youtube.com", "script-src 'self' https://telegram.org")
   .replace("frame-ancestors 'none'", 'frame-ancestors https://web.telegram.org https://*.telegram.org');
 
@@ -70,9 +72,10 @@ function errorHandler(logger) {
 }
 
 /**
- * @param {{ ctx: object, events?: EventEmitter, runtime?: { botUsername?: string }, logger?: object }} deps
+ * @param {{ ctx: object, events?: EventEmitter, runtime?: { botUsername?: string }, logger?: object,
+ *           telegram?: object | null }} deps  telegram — бот для webhook и cron (режим Vercel)
  */
-export function createApp({ ctx, events = new EventEmitter(), runtime = {}, logger = defaultLogger }) {
+export function createApp({ ctx, events = new EventEmitter(), runtime = {}, logger = defaultLogger, telegram = null }) {
   const app = express();
   app.disable('x-powered-by');
   if (ctx.cfg.trustProxy) app.set('trust proxy', 1);
@@ -81,10 +84,19 @@ export function createApp({ ctx, events = new EventEmitter(), runtime = {}, logg
   app.use(express.json({ limit: '50kb' }));
 
   app.use('/api', noStore);
+  app.use(serviceRoutes({ cfg: ctx.cfg, telegram, logger }));
   app.use('/api/public', publicRoutes({ ctx, events, runtime }));
   app.use('/api/admin', sameOriginGuard, adminRoutes({ ctx, events, runtime }));
   app.use('/api/miniapp', miniappRoutes({ ctx, events }));
   app.use('/api', (req, res) => res.status(404).json(fail('Не найдено', 'not_found')));
+
+  // Фото из бакета Neon отдаём со своего домена: CSP остаётся 'self', ключи бакета не покидают сервер.
+  app.get('/media/*key', async (req, res) => {
+    const file = await readMedia(ctx, req.params.key.join('/'));
+    if (!file) return res.status(404).type('text/plain').send('Не найдено');
+    res.set({ 'Content-Type': file.contentType || 'application/octet-stream', 'Cache-Control': 'public, max-age=31536000, immutable' });
+    return res.send(file.bytes);
+  });
 
   app.use(express.static(PUBLIC_DIR, { extensions: ['html'] }));
   app.use(errorHandler(logger));
